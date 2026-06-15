@@ -1,0 +1,25 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c70192a..b0d8157 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1040,6 +1040,7 @@ IF(ANDROID)
+ 			${FTE_ARCH_FILES}
+ 			${FTE_COMMON_FILES}
+ 			${FTE_CLIENT_FILES}
++			${FTE_SERVER_FILES}	#NZ:P is single-player and runs a listen server, so the client references SV_*/sv/svs. Include the server sources.
+ 		)
+ 		SET_TARGET_PROPERTIES(ftedroid PROPERTIES COMPILE_DEFINITIONS "${FTE_LIB_DEFINES};${FTE_DEFINES};${FTE_REVISON}")
+ 		TARGET_INCLUDE_DIRECTORIES(ftedroid PUBLIC ${FTE_INCLUDES})
+diff --git a/engine/client/snd_droid.c b/engine/client/snd_droid.c
+index 01fd71b..7b39cfa 100644
+--- a/engine/client/snd_droid.c
++++ b/engine/client/snd_droid.c
+@@ -7,7 +7,7 @@ java code has a function or two which just periodically calls us to ask us to du
+ #include <pthread.h>
+ 
+ static soundcardinfo_t *sys_sc = NULL;
+-extern int sys_soundflags;
++int sys_soundflags;	//read by the Java audio code via JNI; define it here (the fork lost the definition, leaving only this extern)
+ 
+ //called by the java code when it wants to know what sort of AudioTrack format to use.
+ JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
