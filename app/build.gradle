@@ -1,0 +1,64 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'gay.nzp.nzportable'
+    compileSdk 34
+    ndkVersion '26.3.11579264'
+
+    defaultConfig {
+        applicationId 'gay.nzp.nzportable'
+        minSdk 24          // GLES2 + arm64; covers the vast majority of active devices
+        targetSdk 34
+        versionCode 1
+        versionName '0.1-android'
+
+        ndk {
+            // arm64 first. Add 'armeabi-v7a' once arm64 is confirmed working.
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                // Build only the Android engine shared library (libftedroid.so).
+                arguments '-DFTE_ENGINE_FTEDROID=true',
+                          '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+                targets 'ftedroid'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            // The engine's own CMakeLists already has a complete IF(ANDROID) path.
+            path '../fteqw/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            // Reuse FTEQW's Android Java glue (com.fteqw.*) straight from the submodule.
+            java.srcDirs += ['../fteqw/engine/droid/src']
+            manifest.srcFile 'src/main/AndroidManifest.xml'
+            assets.srcDirs += ['src/main/assets']
+        }
+    }
+
+    buildTypes {
+        debug {
+            // keep it simple for the first bring-up
+            jniDebuggable true
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
