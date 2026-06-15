@@ -1,0 +1,23 @@
+// FTE manifest for the Nazi Zombies: Portable Android build.
+// On Android this text is injected into the engine at compile time via the
+// CONFIG_MANIFEST_TEXT define (see sys_droid.c). This file is the canonical
+// source of that text; the build step turns it into the define.
+//
+// Reference: fteqw/specs/fte_manifests.txt
+
+FTEManifestVer 1
+game nzp
+name "Nazi Zombies: Portable"
+protocolname "FTE-Quake"
+
+// NZ:P ships as its own standalone gamedir ("nzp"); there is no id1 base data.
+basegame nzp
+basegame *fte
+
+// We bundle the game data inside the APK and also allow a writable copy in
+// the app's external data dir for saves/config.
+disablehomedir 0
+
+// TODO(bring-up): list the actual nzp packages once the assets repo layout is
+// pinned, e.g.:
+// package nzp/pak0.pk3
