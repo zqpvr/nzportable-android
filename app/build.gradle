@@ -32,7 +32,11 @@ android {
                           // Modern clang flags far more warnings than the engine's GCC era;
                           // -Werror would block bring-up on harmless ones (e.g. NO_PNG being
                           // defined by both bothdefs.h and the CMake feature flags).
-                          '-DFTE_WERROR=false'
+                          '-DFTE_WERROR=false',
+                          // 16 KB page-size alignment for the .so (Android 15+ / 16 KB-page
+                          // devices). NDK r26 still defaults to 4 KB, so force it on the linker.
+                          // ftedroid is an ADD_LIBRARY(... MODULE), hence MODULE_LINKER_FLAGS.
+                          '-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384,-z,common-page-size=16384'
                 // The Android renderer is the GLES backend (gl_viddroid.c), which needs
                 // GLQUAKE + USE_EGL. But CMake's FIND_PACKAGE(OpenGL) fails in the NDK
                 // sysroot, so it defines NO_OPENGL, and bothdefs.h then #undef's GLQUAKE
