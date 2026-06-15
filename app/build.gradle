@@ -22,8 +22,27 @@ android {
         externalNativeBuild {
             cmake {
                 // Build only the Android engine shared library (libftedroid.so).
+                // CMAKE_INSTALL_PREFIX is forced to a space-free path: the engine bakes
+                // ${CMAKE_INSTALL_FULL_LIBDIR} into CFLAGS (FTE_LIBRARY_PATH/FTE_DATA_DIR),
+                // and Windows' default "C:\Program Files (x86)\..." breaks the clang args.
+                // These paths are unused on Android.
                 arguments '-DFTE_ENGINE_FTEDROID=true',
-                          '-DCMAKE_POLICY_VERSION_MINIMUM=3.5'
+                          '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
+                          '-DCMAKE_INSTALL_PREFIX=C:/fte-prefix',
+                          // Modern clang flags far more warnings than the engine's GCC era;
+                          // -Werror would block bring-up on harmless ones (e.g. NO_PNG being
+                          // defined by both bothdefs.h and the CMake feature flags).
+                          '-DFTE_WERROR=false'
+                // The Android renderer is the GLES backend (gl_viddroid.c), which needs
+                // GLQUAKE + USE_EGL. But CMake's FIND_PACKAGE(OpenGL) fails in the NDK
+                // sysroot, so it defines NO_OPENGL, and bothdefs.h then #undef's GLQUAKE
+                // and USE_EGL. We undefine NO_OPENGL (after CMake's -D) and define GLQUAKE
+                // to emulate the "OpenGL found" path the Android backend expects.
+                // -fcommon: the engine predates GCC 10 / clang's -fno-common default and
+                // has tentative global definitions in multiple TUs (e.g. sys_nativewindow
+                // in both sys_droid.c and gl_viddroid.c). -fcommon merges them as before.
+                cFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon'
+                cppFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon'
                 targets 'ftedroid'
             }
         }
