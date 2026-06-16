@@ -52,8 +52,11 @@ android {
                 // -fcommon: the engine predates GCC 10 / clang's -fno-common default and
                 // has tentative global definitions in multiple TUs (e.g. sys_nativewindow
                 // in both sys_droid.c and gl_viddroid.c). -fcommon merges them as before.
-                cFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon'
-                cppFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon'
+                // AVAIL_STBI: decode PNG/JPG via in-tree stb_image (engine/libs/), since the
+                // NDK build has no libpng/libjpeg (CMake defines NO_PNG/NO_JPEG). NZ:P's menu
+                // art is PNG. Headers vendored into the fteqw submodule's engine/libs/.
+                cFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon', '-DAVAIL_STBI'
+                cppFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon', '-DAVAIL_STBI'
                 targets 'ftedroid'
             }
         }
