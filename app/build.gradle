@@ -2,6 +2,11 @@ plugins {
     id 'com.android.application'
 }
 
+// Absolute, forward-slashed path to NZ:P's FTE build config (selects the nzp game,
+// branding, CSQC/menu/savegames). Without this the engine builds as generic FTEQW.
+def nzpBuildConfig = new File(rootProject.projectDir, 'fteqw/engine/common/config_nzportable.h')
+        .absolutePath.replace('\\', '/')
+
 android {
     namespace 'gay.nzp.nzportable'
     compileSdk 34
@@ -36,7 +41,9 @@ android {
                           // 16 KB page-size alignment for the .so (Android 15+ / 16 KB-page
                           // devices). NDK r26 still defaults to 4 KB, so force it on the linker.
                           // ftedroid is an ADD_LIBRARY(... MODULE), hence MODULE_LINKER_FLAGS.
-                          '-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384,-z,common-page-size=16384'
+                          '-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384,-z,common-page-size=16384',
+                          // Build as NZ:P (nzp game default + branding), not generic FTEQW.
+                          "-DFTE_BUILD_CONFIG=${nzpBuildConfig}".toString()
                 // The Android renderer is the GLES backend (gl_viddroid.c), which needs
                 // GLQUAKE + USE_EGL. But CMake's FIND_PACKAGE(OpenGL) fails in the NDK
                 // sysroot, so it defines NO_OPENGL, and bothdefs.h then #undef's GLQUAKE
