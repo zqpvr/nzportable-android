@@ -24,10 +24,20 @@ index 01fd71b..7b39cfa 100644
  //called by the java code when it wants to know what sort of AudioTrack format to use.
  JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
 diff --git a/engine/client/sys_droid.c b/engine/client/sys_droid.c
-index 3927ff5..643d21e 100644
+index 3927ff5..591de27 100644
 --- a/engine/client/sys_droid.c
 +++ b/engine/client/sys_droid.c
-@@ -1281,7 +1281,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
+@@ -700,7 +700,8 @@ static int FTEDroid_MainThread(void *arg)
+ 					sys_nativewindow = ANativeWindow_fromSurface(env, sys_cursurface);
+ 				else
+ 					sys_nativewindow = NULL;
+-				ANativeWindow_acquire(sys_nativewindow);
++				if (sys_nativewindow)	//null on surface teardown; ANativeWindow_acquire(NULL) segfaults (mirrors the release guard below)
++					ANativeWindow_acquire(sys_nativewindow);
+ 			}
+ 
+ 			r_forceheadless = r_forcevidrestart&1;
+@@ -1281,7 +1282,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
  //FIXME: we need a version of this that takes a byte array instead of a filename, for android's content gibberish.
  static void FTENativeActivity_openfile(JNIEnv *env, jobject this, jstring filename)
  {
