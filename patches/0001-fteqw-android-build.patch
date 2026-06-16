@@ -10,6 +10,20 @@ index c70192a..b0d8157 100644
  		)
  		SET_TARGET_PROPERTIES(ftedroid PROPERTIES COMPILE_DEFINITIONS "${FTE_LIB_DEFINES};${FTE_DEFINES};${FTE_REVISON}")
  		TARGET_INCLUDE_DIRECTORIES(ftedroid PUBLIC ${FTE_INCLUDES})
+diff --git a/engine/client/snd_dma.c b/engine/client/snd_dma.c
+index eaa8bde..f69b3f4 100644
+--- a/engine/client/snd_dma.c
++++ b/engine/client/snd_dma.c
+@@ -1908,6 +1908,9 @@ static sounddriver_t *outputdrivers[] =
+ 	&MacOS_AudioOutput,	//prefered on mac
+ #endif
+ #ifdef ANDROID
++	&Droid_AudioOutput,	//AudioTrack via JNI. The OpenSL source isn't compiled into this
++						//build, so OSL_Output is an unusable weak symbol; without this the
++						//engine finds no audio driver ("Could not start audio device").
+ 	&OSL_Output,		//opensl(es)
+ #endif
+ #if defined(__MORPHOS__)
 diff --git a/engine/client/snd_droid.c b/engine/client/snd_droid.c
 index 01fd71b..7b39cfa 100644
 --- a/engine/client/snd_droid.c
@@ -49,6 +63,92 @@ index 3927ff5..591de27 100644
  	if (tmp)
  	{
  		Sys_Printf("FTENativeActivity_openfile: %s\n", tmp);
+diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
+index ca78a9e..8682387 100644
+--- a/engine/droid/src/com/fteqw/FTENativeActivity.java
++++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
+@@ -104,8 +104,80 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ //		}
+ 
+ 		super.onCreate(savedInstanceState);
++
++		audioStart();
++	}
++
++	//audio: FTENativeActivity's frame loop runs in native code, so (unlike FTEDroidActivity)
++	//there is no Java-side per-frame trigger to start playback. This thread polls the engine's
++	//audio parameters and begins streaming once the sound device is up.
++	private audiothreadclass audiothread;
++	private class audiothreadclass extends Thread
++	{
++		volatile boolean timetodie;
++		@Override
++		public void run()
++		{
++			byte[] audbuf = new byte[2048];
++			android.media.AudioTrack at = null;
++			while (!timetodie && at == null)
++			{
++				int sspeed = FTEDroidEngine.audioinfo(0);
++				int schannels = FTEDroidEngine.audioinfo(1);
++				int sbits = FTEDroidEngine.audioinfo(2);
++				if (sspeed <= 0)
++				{
++					try { Thread.sleep(100); } catch (InterruptedException e) {}
++					continue;
++				}
++				try
++				{
++					int chans = (schannels >= 2) ? android.media.AudioFormat.CHANNEL_OUT_STEREO : android.media.AudioFormat.CHANNEL_OUT_MONO;
++					int enc = (sbits == 8) ? android.media.AudioFormat.ENCODING_PCM_8BIT : android.media.AudioFormat.ENCODING_PCM_16BIT;
++					int sz = 2 * android.media.AudioTrack.getMinBufferSize(sspeed, chans, enc);
++					at = new android.media.AudioTrack(android.media.AudioManager.STREAM_MUSIC, sspeed, chans, enc, sz, android.media.AudioTrack.MODE_STREAM);
++					at.play();
++				}
++				catch (IllegalArgumentException e) { return; }
++			}
++			if (at == null) return;
++			while (!timetodie)
++			{
++				int avail = FTEDroidEngine.paintaudio(audbuf, audbuf.length);
++				if (avail > 0)
++					at.write(audbuf, 0, avail);
++			}
++			at.stop();
++			at.release();
++		}
++		public void killoff()
++		{
++			timetodie = true;
++			try { join(); } catch (InterruptedException e) {}
++		}
++	};
++	private void audioStart()
++	{
++		if (audiothread == null)
++		{
++			audiothread = new audiothreadclass();
++			audiothread.start();
++		}
+ 	}
+-	
++	private void audioStop()
++	{
++		if (audiothread != null)
++		{
++			audiothread.killoff();
++			audiothread = null;
++		}
++	}
++	@Override protected void onDestroy()
++	{
++		audioStop();
++		super.onDestroy();
++	}
++
+ 	//random helpers
+ 	private void handleIntent(android.content.Intent intent)
+ 	{
 diff --git a/engine/libs/stb_image.h b/engine/libs/stb_image.h
 new file mode 100644
 index 0000000..9eedabe
@@ -9774,7 +9874,7 @@ index 0000000..e4b32ed
 +------------------------------------------------------------------------------
 +*/
 diff --git a/engine/vk/vk_init.c b/engine/vk/vk_init.c
-index 3e31550..30499e9 100644
+index 3e31550..9dd9858 100644
 --- a/engine/vk/vk_init.c
 +++ b/engine/vk/vk_init.c
 @@ -729,7 +729,13 @@ static qboolean VK_CreateSwapChain(void)
@@ -9792,3 +9892,22 @@ index 3e31550..30499e9 100644
  		if (surfcaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
  			swapinfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
  		else if (surfcaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
+@@ -4231,7 +4237,7 @@ void VK_DoPresent(struct vkframe *theframe)
+ 	}
+ 	{
+ 		RSpeedMark();
+-		if (err)
++		if (err && err != VK_SUBOPTIMAL_KHR)	//SUBOPTIMAL is expected with our IDENTITY preTransform; treat as success rather than rebuilding the swapchain
+ 		{
+ 			if (err == VK_SUBOPTIMAL_KHR)
+ 				Con_DPrintf("vkQueuePresentKHR: VK_SUBOPTIMAL_KHR\n");
+@@ -4248,8 +4254,7 @@ void VK_DoPresent(struct vkframe *theframe)
+ 			err = vkAcquireNextImageKHR(vk.device, vk.swapchain, timeout, vk.acquiresemaphores[r], vk.acquirefences[r], &vk.acquirebufferidx[r]);
+ 			switch(err)
+ 			{
+-			case VK_SUBOPTIMAL_KHR:	//success, but with a warning.
+-				vk.neednewswapchain = true;
++			case VK_SUBOPTIMAL_KHR:	//success with a warning; expected with our IDENTITY preTransform on rotated Android panels, so don't rebuild the swapchain every frame.
+ 				vk.acquirelast++;
+ 				break;
+ 			case VK_SUCCESS:	//success
