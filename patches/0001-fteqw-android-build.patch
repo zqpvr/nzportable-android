@@ -38,7 +38,7 @@ index 01fd71b..7b39cfa 100644
  //called by the java code when it wants to know what sort of AudioTrack format to use.
  JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
 diff --git a/engine/client/sys_droid.c b/engine/client/sys_droid.c
-index 3927ff5..2c3f781 100644
+index 3927ff5..1b478fb 100644
 --- a/engine/client/sys_droid.c
 +++ b/engine/client/sys_droid.c
 @@ -549,7 +549,9 @@ static void setCursorVisibility(jboolean visible)
@@ -52,7 +52,7 @@ index 3927ff5..2c3f781 100644
  	if (devid < 0)
  		devid = 0;
  	IN_KeyEvent(devid, down, qkeycode, unicode);
-@@ -602,10 +604,31 @@ static void FTENativeActivity_motion(JNIEnv *env, jobject this, jint ptrid, jint
+@@ -602,10 +604,30 @@ static void FTENativeActivity_motion(JNIEnv *env, jobject this, jint ptrid, jint
  		break;
  	};
  }
@@ -60,11 +60,10 @@ index 3927ff5..2c3f781 100644
 +//call order): 0=LeftX 1=LeftY 2=LeftTrigger 3=RightX 4=RightY 5=RightTrigger.
 +//The SDL desktop build turns stick directions into K_GP_*_THUMB_* key presses so menus can
 +//be navigated with the stick; the Android path didn't, which is why menus ignored the pad.
-+//Left stick emits arrow keys so it navigates NZ:P's menus (which handle arrows + dpad, but
-+//not the thumb keys). Arrows are unbound in-game, so in-game the left stick only drives the
-+//analog move axis. Right stick keeps thumb keys (look only; harmless).
-+static const int sys_axispos[6] = {K_RIGHTARROW, K_DOWNARROW, K_GP_LEFT_TRIGGER,  K_GP_RIGHT_THUMB_RIGHT, K_GP_RIGHT_THUMB_DOWN, K_GP_RIGHT_TRIGGER};
-+static const int sys_axisneg[6] = {K_LEFTARROW,  K_UPARROW,   0,                  K_GP_RIGHT_THUMB_LEFT,  K_GP_RIGHT_THUMB_UP,   0};
++//Stick directions -> K_GP_*_THUMB_* keys (like the SDL build). These have no in-game default
++//bind, so they don't disturb analog movement; NZ:P's menu handles them for stick navigation.
++static const int sys_axispos[6] = {K_GP_LEFT_THUMB_RIGHT, K_GP_LEFT_THUMB_DOWN, K_GP_LEFT_TRIGGER,  K_GP_RIGHT_THUMB_RIGHT, K_GP_RIGHT_THUMB_DOWN, K_GP_RIGHT_TRIGGER};
++static const int sys_axisneg[6] = {K_GP_LEFT_THUMB_LEFT,  K_GP_LEFT_THUMB_UP,   0,                  K_GP_RIGHT_THUMB_LEFT,  K_GP_RIGHT_THUMB_UP,   0};
 +static unsigned int sys_axisbtn_pos, sys_axisbtn_neg;	//currently-held bit per axis
  static void FTENativeActivity_axis(JNIEnv *env, jobject this, jint devid, jint axis, jfloat value)
  {
@@ -85,7 +84,7 @@ index 3927ff5..2c3f781 100644
  	IN_JoystickAxisEvent(devid, axis, value);
  }
  //static void FTENativeActivity_accelerometer(JNIEnv *env, jobject obj, jint devid, jfloat x, jfloat y, jfloat z)
-@@ -643,6 +666,25 @@ static int FTEDroid_MainThread(void *arg)
+@@ -643,6 +665,21 @@ static int FTEDroid_MainThread(void *arg)
  		parms.basedir = sys_basedir;	/*filled in later*/
  		parms.argc = read_apk_path(sys_basepak, sizeof(sys_basepak))?3:1;
  		parms.argv = args;
@@ -101,17 +100,13 @@ index 3927ff5..2c3f781 100644
 +			"mainconfig \"nzportable.cfg\"\n"
 +			"disablehomedir 1\n"
 +			"set in_forceseat 1\n"		//all local input drives player 1 (we tag the pad as devid 1)
-+			"-set in_aimassist 1\n"		//aim assist on by default (user-overridable)
-+			//controller layout tweaks over nzportable.cfg: buy on X, reload on dpad-down,
-+			//and free the other dpad directions (they were double-buying / strafing).
-+			"bind GP_X \"+button7\"\n"
-+			"bind GP_DPAD_DOWN \"+button5\"\n"
-+			"bind GP_DPAD_UP \"\"\n"
-+			"bind GP_DPAD_LEFT \"\"\n";
++			"-set in_aimassist 1\n";	//aim assist on by default (user-overridable)
++			//NB: controller binds live in nzportable.cfg, not here - manifest defaultoverrides
++			//run before the mainconfig, so binds set here would just get overwritten by it.
  #ifdef CONFIG_MANIFEST_TEXT
  		parms.manifest = CONFIG_MANIFEST_TEXT;
  #endif
-@@ -700,7 +742,8 @@ static int FTEDroid_MainThread(void *arg)
+@@ -700,7 +737,8 @@ static int FTEDroid_MainThread(void *arg)
  					sys_nativewindow = ANativeWindow_fromSurface(env, sys_cursurface);
  				else
  					sys_nativewindow = NULL;
@@ -121,7 +116,7 @@ index 3927ff5..2c3f781 100644
  			}
  
  			r_forceheadless = r_forcevidrestart&1;
-@@ -1281,7 +1324,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
+@@ -1281,7 +1319,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
  //FIXME: we need a version of this that takes a byte array instead of a filename, for android's content gibberish.
  static void FTENativeActivity_openfile(JNIEnv *env, jobject this, jstring filename)
  {
