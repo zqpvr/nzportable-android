@@ -14,19 +14,21 @@ controller input (reflection fixes, devid tagging, D-pad hat, stick nav),
 in-APK data extraction, immersive fullscreen, and the embedded NZ:P manifest
 (`mainconfig nzportable.cfg`, `in_forceseat`, aim-assist default).
 
-## 0002-nzp-quakec-aimassist.patch
+## 0002-nzp-quakec.patch
 Applies to the **NZ:P QuakeC** game code (nzp-team/quakec), which is built
 separately into `csprogs.dat`.
 ```
 git clone https://github.com/nzp-team/quakec
-cd quakec && git apply ../patches/0002-nzp-quakec-aimassist.patch
+cd quakec && git apply ../patches/0002-nzp-quakec.patch
 # build (Windows): tools\qc-compiler-win.bat  (csprogs.dat + menu.dat build
 # without the python/pandas hash step; only the server progs need it)
 cd bin && ./fteqcc-cli-win.exe -DFTE -Wall -srcfile ../progs/csqc.src
 # then copy build/fte/csprogs.dat into app/src/main/assets/nzp/
 ```
-Sets `gamepad_enabled` when controller input arrives — NZ:P never sets it, so
-aim assist (gated on that flag) was dead even on desktop.
+Two changes: (1) sets `gamepad_enabled` when controller input arrives — NZ:P
+never sets it, so aim assist (gated on that flag) was dead even on desktop;
+(2) adds a RENDERER toggle (Vulkan/OpenGL) to the video-options menu. Rebuild
+both `csprogs.dat` (from csqc.src) and `menu.dat` (from menu.src).
 
 ## Game-data prep (`app/src/main/assets/nzp/`, gitignored, bundled at build)
 Start from the official `nzp` data (any NZ:P desktop/nightly release), then:
