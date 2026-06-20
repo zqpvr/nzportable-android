@@ -38,24 +38,21 @@ index 01fd71b..7b39cfa 100644
  //called by the java code when it wants to know what sort of AudioTrack format to use.
  JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
 diff --git a/engine/client/sys_droid.c b/engine/client/sys_droid.c
-index 3927ff5..7fabab5 100644
+index 3927ff5..2c3f781 100644
 --- a/engine/client/sys_droid.c
 +++ b/engine/client/sys_droid.c
-@@ -549,9 +549,10 @@ static void setCursorVisibility(jboolean visible)
+@@ -549,7 +549,9 @@ static void setCursorVisibility(jboolean visible)
  static void FTENativeActivity_keypress(JNIEnv *env, jobject this, jint devid, jboolean down, jint keycode, jint unicode)
  {
  	int qkeycode = mapkey(keycode);
 -//	Sys_Printf("FTENativeActivity_keypress: d=%i s=%i a=%i,q=%i u=%i\n", devid, down, keycode, qkeycode, unicode);
--	if (devid < 0)
--		devid = 0;
-+	//Force all hardware key/gamepad input onto the primary seat (player 1). Android device
-+	//ids are large (e.g. 254), and the engine routes any non-zero devid to split-screen
-+	//seat devid+1 - a non-existent player - so controller input was being discarded.
-+	devid = 0;
++	//devid arrives normalised from Java: 0 = keyboard/system, 1 = gamepad. The game keys
++	//controller glyphs + aim assist off devid>0, and in_forceseat (set in the manifest)
++	//routes the non-zero devid back to player 1 instead of a non-existent split-screen seat.
+ 	if (devid < 0)
+ 		devid = 0;
  	IN_KeyEvent(devid, down, qkeycode, unicode);
- }
- static jboolean FTENativeActivity_wantrelative(JNIEnv *env, jobject this)
-@@ -602,10 +603,27 @@ static void FTENativeActivity_motion(JNIEnv *env, jobject this, jint ptrid, jint
+@@ -602,10 +604,31 @@ static void FTENativeActivity_motion(JNIEnv *env, jobject this, jint ptrid, jint
  		break;
  	};
  }
@@ -63,29 +60,32 @@ index 3927ff5..7fabab5 100644
 +//call order): 0=LeftX 1=LeftY 2=LeftTrigger 3=RightX 4=RightY 5=RightTrigger.
 +//The SDL desktop build turns stick directions into K_GP_*_THUMB_* key presses so menus can
 +//be navigated with the stick; the Android path didn't, which is why menus ignored the pad.
-+static const int sys_axispos[6] = {K_GP_LEFT_THUMB_RIGHT, K_GP_LEFT_THUMB_DOWN, K_GP_LEFT_TRIGGER,  K_GP_RIGHT_THUMB_RIGHT, K_GP_RIGHT_THUMB_DOWN, K_GP_RIGHT_TRIGGER};
-+static const int sys_axisneg[6] = {K_GP_LEFT_THUMB_LEFT,  K_GP_LEFT_THUMB_UP,   0,                  K_GP_RIGHT_THUMB_LEFT,  K_GP_RIGHT_THUMB_UP,   0};
++//Left stick emits arrow keys so it navigates NZ:P's menus (which handle arrows + dpad, but
++//not the thumb keys). Arrows are unbound in-game, so in-game the left stick only drives the
++//analog move axis. Right stick keeps thumb keys (look only; harmless).
++static const int sys_axispos[6] = {K_RIGHTARROW, K_DOWNARROW, K_GP_LEFT_TRIGGER,  K_GP_RIGHT_THUMB_RIGHT, K_GP_RIGHT_THUMB_DOWN, K_GP_RIGHT_TRIGGER};
++static const int sys_axisneg[6] = {K_LEFTARROW,  K_UPARROW,   0,                  K_GP_RIGHT_THUMB_LEFT,  K_GP_RIGHT_THUMB_UP,   0};
 +static unsigned int sys_axisbtn_pos, sys_axisbtn_neg;	//currently-held bit per axis
  static void FTENativeActivity_axis(JNIEnv *env, jobject this, jint devid, jint axis, jfloat value)
  {
--	if (devid < 0)
+ 	if (devid < 0)
 -		devid = 0;
-+	devid = 0;	//route all controller axes to the primary seat too (see keypress)
++		devid = 1;	//Java tags controller axes with devid 1 (see keypress); in_forceseat routes to player 1
 +	if (axis >= 0 && axis < 6)
 +	{
 +		unsigned int bit = 1u<<axis;
 +		if (value > 0.5f && sys_axispos[axis])
-+		{	if (!(sys_axisbtn_pos & bit)) { IN_KeyEvent(0, true, sys_axispos[axis], 0); sys_axisbtn_pos |= bit; } }
-+		else if (sys_axisbtn_pos & bit) { IN_KeyEvent(0, false, sys_axispos[axis], 0); sys_axisbtn_pos &= ~bit; }
++		{	if (!(sys_axisbtn_pos & bit)) { IN_KeyEvent(devid, true, sys_axispos[axis], 0); sys_axisbtn_pos |= bit; } }
++		else if (sys_axisbtn_pos & bit) { IN_KeyEvent(devid, false, sys_axispos[axis], 0); sys_axisbtn_pos &= ~bit; }
 +
 +		if (value < -0.5f && sys_axisneg[axis])
-+		{	if (!(sys_axisbtn_neg & bit)) { IN_KeyEvent(0, true, sys_axisneg[axis], 0); sys_axisbtn_neg |= bit; } }
-+		else if (sys_axisbtn_neg & bit) { IN_KeyEvent(0, false, sys_axisneg[axis], 0); sys_axisbtn_neg &= ~bit; }
++		{	if (!(sys_axisbtn_neg & bit)) { IN_KeyEvent(devid, true, sys_axisneg[axis], 0); sys_axisbtn_neg |= bit; } }
++		else if (sys_axisbtn_neg & bit) { IN_KeyEvent(devid, false, sys_axisneg[axis], 0); sys_axisbtn_neg &= ~bit; }
 +	}
  	IN_JoystickAxisEvent(devid, axis, value);
  }
  //static void FTENativeActivity_accelerometer(JNIEnv *env, jobject obj, jint devid, jfloat x, jfloat y, jfloat z)
-@@ -643,6 +661,17 @@ static int FTEDroid_MainThread(void *arg)
+@@ -643,6 +666,25 @@ static int FTEDroid_MainThread(void *arg)
  		parms.basedir = sys_basedir;	/*filled in later*/
  		parms.argc = read_apk_path(sys_basepak, sizeof(sys_basepak))?3:1;
  		parms.argv = args;
@@ -99,11 +99,19 @@ index 3927ff5..7fabab5 100644
 +			"name \"Nazi Zombies Portable\"\n"
 +			"basegame nzp\n"
 +			"mainconfig \"nzportable.cfg\"\n"
-+			"disablehomedir 1\n";
++			"disablehomedir 1\n"
++			"set in_forceseat 1\n"		//all local input drives player 1 (we tag the pad as devid 1)
++			"-set in_aimassist 1\n"		//aim assist on by default (user-overridable)
++			//controller layout tweaks over nzportable.cfg: buy on X, reload on dpad-down,
++			//and free the other dpad directions (they were double-buying / strafing).
++			"bind GP_X \"+button7\"\n"
++			"bind GP_DPAD_DOWN \"+button5\"\n"
++			"bind GP_DPAD_UP \"\"\n"
++			"bind GP_DPAD_LEFT \"\"\n";
  #ifdef CONFIG_MANIFEST_TEXT
  		parms.manifest = CONFIG_MANIFEST_TEXT;
  #endif
-@@ -700,7 +729,8 @@ static int FTEDroid_MainThread(void *arg)
+@@ -700,7 +742,8 @@ static int FTEDroid_MainThread(void *arg)
  					sys_nativewindow = ANativeWindow_fromSurface(env, sys_cursurface);
  				else
  					sys_nativewindow = NULL;
@@ -113,7 +121,7 @@ index 3927ff5..7fabab5 100644
  			}
  
  			r_forceheadless = r_forcevidrestart&1;
-@@ -1281,7 +1311,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
+@@ -1281,7 +1324,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
  //FIXME: we need a version of this that takes a byte array instead of a filename, for android's content gibberish.
  static void FTENativeActivity_openfile(JNIEnv *env, jobject this, jstring filename)
  {
@@ -126,7 +134,7 @@ index 3927ff5..7fabab5 100644
  	{
  		Sys_Printf("FTENativeActivity_openfile: %s\n", tmp);
 diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
-index ca78a9e..273e27f 100644
+index ca78a9e..a39a171 100644
 --- a/engine/droid/src/com/fteqw/FTENativeActivity.java
 +++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
 @@ -91,21 +91,182 @@ public class FTENativeActivity extends android.app.Activity implements android.v
@@ -182,8 +190,7 @@ index ca78a9e..273e27f 100644
 +				| 0x00000400);	//SYSTEM_UI_FLAG_LAYOUT_STABLE
 +		}
 +		catch (Throwable t) {}
- 	}
--	
++	}
 +	@Override public void onWindowFocusChanged(boolean hasFocus)
 +	{
 +		super.onWindowFocusChanged(hasFocus);
@@ -317,12 +324,38 @@ index ca78a9e..273e27f 100644
 +	{
 +		audioStop();
 +		super.onDestroy();
-+	}
+ 	}
+-	
 +
  	//random helpers
  	private void handleIntent(android.content.Intent intent)
  	{
-@@ -335,7 +496,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -264,6 +425,9 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 	public boolean dispatchKeyEvent(KeyEvent event)
+ 	{	//needed because AKeyEvent_getUnicode is missing completely.
+ 		int act = event.getAction();
++		//Tag gamepad input with a non-zero device id so the game (CSQC) detects a controller
++		//(it keys glyph prompts and aim assist off devid>0). in_forceseat routes it to player 1.
++		int kdev = ((event.getSource() & (SOURCE_GAMEPAD|SOURCE_JOYSTICK)) != 0) ? 1 : 0;
+ 		if (act == KeyEvent.ACTION_DOWN)
+ 		{
+ 			int metastate = event.getMetaState();
+@@ -273,12 +437,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 			if (unichar == 0)
+ 				unichar = event.getDisplayLabel();
+ 
+-			keypress(event.getDeviceId(), true, event.getKeyCode(), unichar);
++			keypress(kdev, true, event.getKeyCode(), unichar);
+ 			return true;
+ 		}
+ 		else if (act == KeyEvent.ACTION_UP)
+ 		{
+-			keypress(event.getDeviceId(), false, event.getKeyCode(), 0);
++			keypress(kdev, false, event.getKeyCode(), 0);
+ 			return true;
+ 		}
+ 		else
+@@ -335,7 +499,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  		try
  		{
  			MotionEvent_getAxisValueJ = MotionEvent.class.getMethod("getAxisValue", int.class); //api12
@@ -331,7 +364,7 @@ index ca78a9e..273e27f 100644
  			AXIS_X = (Integer)MotionEvent.class.getField("AXIS_X").get(null);
  			AXIS_Y = (Integer)MotionEvent.class.getField("AXIS_Y").get(null);
  			AXIS_LTRIGGER = (Integer)MotionEvent.class.getField("AXIS_LTRIGGER").get(null);
-@@ -359,7 +520,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -359,16 +523,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (range != null)
  			{
  				final float flat = range.getFlat();
@@ -339,7 +372,56 @@ index ca78a9e..273e27f 100644
 +				float v = (Float)MotionEvent_getAxisValueJ.invoke(event, aaxis);	//getAxisValue(int) takes ONE arg; the stray second arg threw IllegalArgumentException every call, silently killing all controller axes
  				if (Math.abs(v) < flat)
  					v = 0;	//read as 0 if its within the deadzone.
- 				axis(event.getDeviceId(), qaxis, v);
+-				axis(event.getDeviceId(), qaxis, v);
++				axis(1, qaxis, v);	//devid 1 = "a controller" (see dispatchKeyEvent)
+ 			}
+ 		}
+ 		catch(Exception e)
+ 		{
+ 		}
+ 	}
++	//Convert the D-pad hat axis to K_GP_DPAD_* key events (down/up edges). keypress() runs the
++	//keycode through mapkey(), so KEYCODE_DPAD_* becomes K_GP_DPAD_* just like a real button.
++	private int hatX = 0, hatY = 0;
++	private void handleHat(MotionEvent event)
++	{
++		int devid = 1;	//D-pad is controller input (see dispatchKeyEvent)
++		float hx, hy;
++		try { hx = event.getAxisValue(MotionEvent.AXIS_HAT_X); hy = event.getAxisValue(MotionEvent.AXIS_HAT_Y); }
++		catch (Throwable t) { return; }
++		int nx = (hx < -0.5f) ? -1 : (hx > 0.5f ? 1 : 0);
++		int ny = (hy < -0.5f) ? -1 : (hy > 0.5f ? 1 : 0);
++		if (nx != hatX)
++		{
++			if (hatX < 0) keypress(devid, false, KeyEvent.KEYCODE_DPAD_LEFT, 0);
++			else if (hatX > 0) keypress(devid, false, KeyEvent.KEYCODE_DPAD_RIGHT, 0);
++			if (nx < 0) keypress(devid, true, KeyEvent.KEYCODE_DPAD_LEFT, 0);
++			else if (nx > 0) keypress(devid, true, KeyEvent.KEYCODE_DPAD_RIGHT, 0);
++			hatX = nx;
++		}
++		if (ny != hatY)
++		{
++			if (hatY < 0) keypress(devid, false, KeyEvent.KEYCODE_DPAD_UP, 0);
++			else if (hatY > 0) keypress(devid, false, KeyEvent.KEYCODE_DPAD_DOWN, 0);
++			if (ny < 0) keypress(devid, true, KeyEvent.KEYCODE_DPAD_UP, 0);
++			else if (ny > 0) keypress(devid, true, KeyEvent.KEYCODE_DPAD_DOWN, 0);
++			hatY = ny;
++		}
++	}
+ 	private boolean motionEvent(MotionEvent event)
+ 	{
+ 		int id;
+@@ -388,6 +580,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 			handleJoystickAxis(event, dev, AXIS_RZ, 4);
+ 			handleJoystickAxis(event, dev, AXIS_RTRIGGER, 5);
+ 
++			//gamepad D-pads usually arrive as a hat axis, not key events; NZ:P binds menu
++			//navigation and "use/buy" to the D-pad, so synthesize K_GP_DPAD_* key presses.
++			handleHat(event);
++
+ 			return true;
+ 		}
+ 
 diff --git a/engine/libs/stb_image.h b/engine/libs/stb_image.h
 new file mode 100644
 index 0000000..9eedabe
