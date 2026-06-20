@@ -38,7 +38,7 @@ index 01fd71b..7b39cfa 100644
  //called by the java code when it wants to know what sort of AudioTrack format to use.
  JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
 diff --git a/engine/client/sys_droid.c b/engine/client/sys_droid.c
-index 3927ff5..01b242f 100644
+index 3927ff5..7fabab5 100644
 --- a/engine/client/sys_droid.c
 +++ b/engine/client/sys_droid.c
 @@ -549,9 +549,10 @@ static void setCursorVisibility(jboolean visible)
@@ -85,7 +85,25 @@ index 3927ff5..01b242f 100644
  	IN_JoystickAxisEvent(devid, axis, value);
  }
  //static void FTENativeActivity_accelerometer(JNIEnv *env, jobject obj, jint devid, jfloat x, jfloat y, jfloat z)
-@@ -700,7 +718,8 @@ static int FTEDroid_MainThread(void *arg)
+@@ -643,6 +661,17 @@ static int FTEDroid_MainThread(void *arg)
+ 		parms.basedir = sys_basedir;	/*filled in later*/
+ 		parms.argc = read_apk_path(sys_basepak, sizeof(sys_basepak))?3:1;
+ 		parms.argv = args;
++		//Embed NZ:P's manifest (mirrors the desktop default.fmf). The desktop build reads this
++		//from a file; the Android build has no such file, so without this the engine used a
++		//default config name and never exec'd nzportable.cfg - the config that holds the proper
++		//controller binds/sensitivities and is where settings are saved. mainconfig fixes both
++		//the controller layout and settings persistence.
++		parms.manifest =
++			"game nzp\n"
++			"name \"Nazi Zombies Portable\"\n"
++			"basegame nzp\n"
++			"mainconfig \"nzportable.cfg\"\n"
++			"disablehomedir 1\n";
+ #ifdef CONFIG_MANIFEST_TEXT
+ 		parms.manifest = CONFIG_MANIFEST_TEXT;
+ #endif
+@@ -700,7 +729,8 @@ static int FTEDroid_MainThread(void *arg)
  					sys_nativewindow = ANativeWindow_fromSurface(env, sys_cursurface);
  				else
  					sys_nativewindow = NULL;
@@ -95,7 +113,7 @@ index 3927ff5..01b242f 100644
  			}
  
  			r_forceheadless = r_forcevidrestart&1;
-@@ -1281,7 +1300,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
+@@ -1281,7 +1311,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
  //FIXME: we need a version of this that takes a byte array instead of a filename, for android's content gibberish.
  static void FTENativeActivity_openfile(JNIEnv *env, jobject this, jstring filename)
  {
@@ -108,10 +126,10 @@ index 3927ff5..01b242f 100644
  	{
  		Sys_Printf("FTENativeActivity_openfile: %s\n", tmp);
 diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
-index ca78a9e..9337cc5 100644
+index ca78a9e..273e27f 100644
 --- a/engine/droid/src/com/fteqw/FTENativeActivity.java
 +++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
-@@ -91,7 +91,14 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -91,21 +91,182 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  
  //		byte[] nativeSavedState = savedInstanceState != null
  //			? savedInstanceState.getByteArray(KEY_NATIVE_SAVED_STATE) : null;
@@ -126,13 +144,51 @@ index ca78a9e..9337cc5 100644
 +		startup(dataPath, getNativeLibraryDirectory());
  		handleIntent(getIntent());
  
- //		if (Build.VERSION.SDK_INT >= 19)
-@@ -104,8 +111,138 @@ public class FTENativeActivity extends android.app.Activity implements android.v
- //		}
+-//		if (Build.VERSION.SDK_INT >= 19)
+-//		{
+-//			int flags = 0;
+-//			flags |= 4096/*SYSTEM_UI_FLAG_IMMERSIVE_STICKY, api 19*/;
+-//			flags |= 4/*SYSTEM_UI_FLAG_FULLSCREEN, api 16*/;
+-//			flags |= 2/*SYSTEM_UI_FLAG_HIDE_NAVIGATION, api 14*/;			
+-//			mNativeContentView.setSystemUiVisibility(flags); /*api 11*/
+-//		}
++		//Let the game draw into the display-cutout (camera notch) area in landscape so it
++		//genuinely fills the screen, then go immersive-fullscreen (hide status/nav bars).
++		if (android.os.Build.VERSION.SDK_INT >= 28)
++		{
++			WindowManager.LayoutParams lp = getWindow().getAttributes();
++			lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
++			getWindow().setAttributes(lp);
++		}
++		setFullscreen();
  
  		super.onCreate(savedInstanceState);
 +
 +		audioStart();
++	}
++
++	//Immersive fullscreen: hide the status + navigation bars. STICKY lets a swipe reveal them
++	//transiently. setSystemUiVisibility is deprecated but still the most broadly-compatible way.
++	private void setFullscreen()
++	{
++		try
++		{
++			getWindow().getDecorView().setSystemUiVisibility(
++				  0x00000004	//SYSTEM_UI_FLAG_FULLSCREEN
++				| 0x00000002	//SYSTEM_UI_FLAG_HIDE_NAVIGATION
++				| 0x00001000	//SYSTEM_UI_FLAG_IMMERSIVE_STICKY
++				| 0x00000100	//SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
++				| 0x00000200	//SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
++				| 0x00000400);	//SYSTEM_UI_FLAG_LAYOUT_STABLE
++		}
++		catch (Throwable t) {}
+ 	}
+-	
++	@Override public void onWindowFocusChanged(boolean hasFocus)
++	{
++		super.onWindowFocusChanged(hasFocus);
++		if (hasFocus)	//re-assert immersive mode whenever focus returns (it gets reset by dialogs, etc.)
++			setFullscreen();
 +	}
 +
 +	//Copies assets/nzp/** out of the APK into <dataPath>/nzp on first run (or when the bundled
@@ -183,8 +239,7 @@ index ca78a9e..9337cc5 100644
 +	private static String readFileString(java.io.File f) throws Exception
 +	{
 +		return streamToString(new java.io.FileInputStream(f));
- 	}
--	
++	}
 +	private static String streamToString(java.io.InputStream is) throws Exception
 +	{
 +		java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
@@ -267,7 +322,7 @@ index ca78a9e..9337cc5 100644
  	//random helpers
  	private void handleIntent(android.content.Intent intent)
  	{
-@@ -335,7 +472,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -335,7 +496,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  		try
  		{
  			MotionEvent_getAxisValueJ = MotionEvent.class.getMethod("getAxisValue", int.class); //api12
@@ -276,7 +331,7 @@ index ca78a9e..9337cc5 100644
  			AXIS_X = (Integer)MotionEvent.class.getField("AXIS_X").get(null);
  			AXIS_Y = (Integer)MotionEvent.class.getField("AXIS_Y").get(null);
  			AXIS_LTRIGGER = (Integer)MotionEvent.class.getField("AXIS_LTRIGGER").get(null);
-@@ -359,7 +496,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -359,7 +520,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (range != null)
  			{
  				final float flat = range.getFlat();
