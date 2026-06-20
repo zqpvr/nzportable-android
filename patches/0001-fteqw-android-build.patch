@@ -38,10 +38,54 @@ index 01fd71b..7b39cfa 100644
  //called by the java code when it wants to know what sort of AudioTrack format to use.
  JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
 diff --git a/engine/client/sys_droid.c b/engine/client/sys_droid.c
-index 3927ff5..591de27 100644
+index 3927ff5..01b242f 100644
 --- a/engine/client/sys_droid.c
 +++ b/engine/client/sys_droid.c
-@@ -700,7 +700,8 @@ static int FTEDroid_MainThread(void *arg)
+@@ -549,9 +549,10 @@ static void setCursorVisibility(jboolean visible)
+ static void FTENativeActivity_keypress(JNIEnv *env, jobject this, jint devid, jboolean down, jint keycode, jint unicode)
+ {
+ 	int qkeycode = mapkey(keycode);
+-//	Sys_Printf("FTENativeActivity_keypress: d=%i s=%i a=%i,q=%i u=%i\n", devid, down, keycode, qkeycode, unicode);
+-	if (devid < 0)
+-		devid = 0;
++	//Force all hardware key/gamepad input onto the primary seat (player 1). Android device
++	//ids are large (e.g. 254), and the engine routes any non-zero devid to split-screen
++	//seat devid+1 - a non-existent player - so controller input was being discarded.
++	devid = 0;
+ 	IN_KeyEvent(devid, down, qkeycode, unicode);
+ }
+ static jboolean FTENativeActivity_wantrelative(JNIEnv *env, jobject this)
+@@ -602,10 +603,27 @@ static void FTENativeActivity_motion(JNIEnv *env, jobject this, jint ptrid, jint
+ 		break;
+ 	};
+ }
++//Axis indices arriving here match fte's GPAXIS_* order (see the Java handleJoystickAxis
++//call order): 0=LeftX 1=LeftY 2=LeftTrigger 3=RightX 4=RightY 5=RightTrigger.
++//The SDL desktop build turns stick directions into K_GP_*_THUMB_* key presses so menus can
++//be navigated with the stick; the Android path didn't, which is why menus ignored the pad.
++static const int sys_axispos[6] = {K_GP_LEFT_THUMB_RIGHT, K_GP_LEFT_THUMB_DOWN, K_GP_LEFT_TRIGGER,  K_GP_RIGHT_THUMB_RIGHT, K_GP_RIGHT_THUMB_DOWN, K_GP_RIGHT_TRIGGER};
++static const int sys_axisneg[6] = {K_GP_LEFT_THUMB_LEFT,  K_GP_LEFT_THUMB_UP,   0,                  K_GP_RIGHT_THUMB_LEFT,  K_GP_RIGHT_THUMB_UP,   0};
++static unsigned int sys_axisbtn_pos, sys_axisbtn_neg;	//currently-held bit per axis
+ static void FTENativeActivity_axis(JNIEnv *env, jobject this, jint devid, jint axis, jfloat value)
+ {
+-	if (devid < 0)
+-		devid = 0;
++	devid = 0;	//route all controller axes to the primary seat too (see keypress)
++	if (axis >= 0 && axis < 6)
++	{
++		unsigned int bit = 1u<<axis;
++		if (value > 0.5f && sys_axispos[axis])
++		{	if (!(sys_axisbtn_pos & bit)) { IN_KeyEvent(0, true, sys_axispos[axis], 0); sys_axisbtn_pos |= bit; } }
++		else if (sys_axisbtn_pos & bit) { IN_KeyEvent(0, false, sys_axispos[axis], 0); sys_axisbtn_pos &= ~bit; }
++
++		if (value < -0.5f && sys_axisneg[axis])
++		{	if (!(sys_axisbtn_neg & bit)) { IN_KeyEvent(0, true, sys_axisneg[axis], 0); sys_axisbtn_neg |= bit; } }
++		else if (sys_axisbtn_neg & bit) { IN_KeyEvent(0, false, sys_axisneg[axis], 0); sys_axisbtn_neg &= ~bit; }
++	}
+ 	IN_JoystickAxisEvent(devid, axis, value);
+ }
+ //static void FTENativeActivity_accelerometer(JNIEnv *env, jobject obj, jint devid, jfloat x, jfloat y, jfloat z)
+@@ -700,7 +718,8 @@ static int FTEDroid_MainThread(void *arg)
  					sys_nativewindow = ANativeWindow_fromSurface(env, sys_cursurface);
  				else
  					sys_nativewindow = NULL;
@@ -51,7 +95,7 @@ index 3927ff5..591de27 100644
  			}
  
  			r_forceheadless = r_forcevidrestart&1;
-@@ -1281,7 +1282,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
+@@ -1281,7 +1300,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
  //FIXME: we need a version of this that takes a byte array instead of a filename, for android's content gibberish.
  static void FTENativeActivity_openfile(JNIEnv *env, jobject this, jstring filename)
  {
@@ -64,15 +108,90 @@ index 3927ff5..591de27 100644
  	{
  		Sys_Printf("FTENativeActivity_openfile: %s\n", tmp);
 diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
-index ca78a9e..8682387 100644
+index ca78a9e..9337cc5 100644
 --- a/engine/droid/src/com/fteqw/FTENativeActivity.java
 +++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
-@@ -104,8 +104,80 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -91,7 +91,14 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 
+ //		byte[] nativeSavedState = savedInstanceState != null
+ //			? savedInstanceState.getByteArray(KEY_NATIVE_SAVED_STATE) : null;
+-		startup(getAbsolutePath(getExternalFilesDir(null)), getNativeLibraryDirectory());
++		//Bundled game data ships inside the APK (assets/nzp). Extract it to the writable data
++		//dir on first run (or when the bundled version changes) BEFORE startup() so the engine
++		//finds it. Fast no-op once installed (version-file check). The render surface is only
++		//created after onCreate returns, so doing this here keeps startup ordering correct.
++		String dataPath = getAbsolutePath(getExternalFilesDir(null));
++		try { extractGameData(dataPath); } catch (Exception e) { e.printStackTrace(); }
++
++		startup(dataPath, getNativeLibraryDirectory());
+ 		handleIntent(getIntent());
+ 
+ //		if (Build.VERSION.SDK_INT >= 19)
+@@ -104,8 +111,138 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  //		}
  
  		super.onCreate(savedInstanceState);
 +
 +		audioStart();
++	}
++
++	//Copies assets/nzp/** out of the APK into <dataPath>/nzp on first run (or when the bundled
++	//version differs). The engine reads loose files from the data dir, so this makes a fully
++	//self-contained APK. Reads the APK zip directly - fast and handles AGP asset compression.
++	private void extractGameData(String dataPath) throws Exception
++	{
++		if (dataPath == null)
++			return;
++		final String prefix = "assets/nzp/";
++		java.util.zip.ZipFile zip = new java.util.zip.ZipFile(getPackageCodePath());
++		try
++		{
++			//skip extraction if already installed at the same version
++			String bundledVer = readZipString(zip, prefix + "version.txt");
++			java.io.File verFile = new java.io.File(dataPath, "nzp/version.txt");
++			if (bundledVer != null && verFile.exists() && bundledVer.equals(readFileString(verFile)))
++				return;
++			android.util.Log.i("FTEDroid", "extracting bundled game data...");
++			byte[] buf = new byte[65536];
++			java.util.Enumeration<? extends java.util.zip.ZipEntry> en = zip.entries();
++			while (en.hasMoreElements())
++			{
++				java.util.zip.ZipEntry ze = en.nextElement();
++				String name = ze.getName();
++				if (!name.startsWith(prefix))
++					continue;
++				java.io.File out = new java.io.File(dataPath, name.substring("assets/".length()));
++				if (ze.isDirectory()) { out.mkdirs(); continue; }
++				if (out.getParentFile() != null) out.getParentFile().mkdirs();
++				java.io.InputStream is = zip.getInputStream(ze);
++				java.io.FileOutputStream os = new java.io.FileOutputStream(out);
++				int n;
++				while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
++				os.close();
++				is.close();
++			}
++			android.util.Log.i("FTEDroid", "game data extracted.");
++		}
++		finally { zip.close(); }
++	}
++	private static String readZipString(java.util.zip.ZipFile zip, String entry) throws Exception
++	{
++		java.util.zip.ZipEntry ze = zip.getEntry(entry);
++		if (ze == null) return null;
++		return streamToString(zip.getInputStream(ze));
++	}
++	private static String readFileString(java.io.File f) throws Exception
++	{
++		return streamToString(new java.io.FileInputStream(f));
+ 	}
+-	
++	private static String streamToString(java.io.InputStream is) throws Exception
++	{
++		java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
++		byte[] b = new byte[4096]; int n;
++		while ((n = is.read(b)) > 0) bo.write(b, 0, n);
++		is.close();
++		return bo.toString("UTF-8").trim();
 +	}
 +
 +	//audio: FTENativeActivity's frame loop runs in native code, so (unlike FTEDroidActivity)
@@ -130,8 +249,7 @@ index ca78a9e..8682387 100644
 +			audiothread = new audiothreadclass();
 +			audiothread.start();
 +		}
- 	}
--	
++	}
 +	private void audioStop()
 +	{
 +		if (audiothread != null)
@@ -149,6 +267,24 @@ index ca78a9e..8682387 100644
  	//random helpers
  	private void handleIntent(android.content.Intent intent)
  	{
+@@ -335,7 +472,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 		try
+ 		{
+ 			MotionEvent_getAxisValueJ = MotionEvent.class.getMethod("getAxisValue", int.class); //api12
+-			InputDevice_getMotionRange = InputDevice.class.getMethod("getMotionRange", int.class); //api12
++			InputDevice_getMotionRange = InputDevice.class.getMethod("getMotionRange", int.class, int.class); //api12 - the (axis,source) overload; it's invoked with two args, so registering the 1-arg version made every call throw
+ 			AXIS_X = (Integer)MotionEvent.class.getField("AXIS_X").get(null);
+ 			AXIS_Y = (Integer)MotionEvent.class.getField("AXIS_Y").get(null);
+ 			AXIS_LTRIGGER = (Integer)MotionEvent.class.getField("AXIS_LTRIGGER").get(null);
+@@ -359,7 +496,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 			if (range != null)
+ 			{
+ 				final float flat = range.getFlat();
+-				float v = (Float)MotionEvent_getAxisValueJ.invoke(event, aaxis, 0);
++				float v = (Float)MotionEvent_getAxisValueJ.invoke(event, aaxis);	//getAxisValue(int) takes ONE arg; the stray second arg threw IllegalArgumentException every call, silently killing all controller axes
+ 				if (Math.abs(v) < flat)
+ 					v = 0;	//read as 0 if its within the deadzone.
+ 				axis(event.getDeviceId(), qaxis, v);
 diff --git a/engine/libs/stb_image.h b/engine/libs/stb_image.h
 new file mode 100644
 index 0000000..9eedabe
