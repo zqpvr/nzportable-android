@@ -1,8 +1,33 @@
 diff --git a/source/client/main.qc b/source/client/main.qc
-index 47aea3b..54a9c7b 100644
+index 47aea3b..1184da8 100644
 --- a/source/client/main.qc
 +++ b/source/client/main.qc
-@@ -1094,6 +1094,7 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
+@@ -1060,6 +1060,24 @@ void(float scanx, float setval) Input_Movecheck =
+     }
+ }
+ 
++// Controller B = back one level for the in-game menus (pause + its submenus).
++// These run in CSQC (not menu.dat), and use #else back-targets (MENU_PAUSE),
++// so they need their own back logic separate from menu/main.qc's Menu_GoBack.
++void() CSQC_MenuBack =
++{
++	Menu_PlaySound(MENU_SND_ENTER);
++	if (current_menu == MENU_VIDEO || current_menu == MENU_AUDIO || current_menu == MENU_CONTROL || current_menu == MENU_ACCESSIBILITY)
++		current_menu = MENU_OPTIONS;
++	else if (current_menu == MENU_GAMEPAD || current_menu == MENU_BINDINGS)
++		current_menu = MENU_CONTROL;
++	else if (current_menu == MENU_OPTIONS)
++		current_menu = MENU_PAUSE;
++	else if (current_menu == MENU_PAUSE && menu_paus_submenu != 0)
++		menu_paus_submenu = 0;			// back out of a confirm dialog
++	else
++		ToggleMenu();					// resume the game
++};
++
+ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
+ {
+ 	if (evtype == IE_GYROSCOPE || evtype == IE_ACCELEROMETER)
+@@ -1094,6 +1112,7 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
  	if (last_input_deviceid > 0)
  	{
  		last_input_was_gamepad = TRUE;
@@ -10,6 +35,18 @@ index 47aea3b..54a9c7b 100644
  		setlocaluserinfo(0, "using_gamepad", "1");
  	}
  	else
+@@ -1104,6 +1123,11 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
+ 
+ 	if (current_menu != MENU_NONE)
+ 	{
++		if (evtype == IE_KEYDOWN && scanx == K_GP_B && _sui_binding_command == "")
++		{
++			CSQC_MenuBack();
++			return TRUE;
++		}
+ 		return sui_input_event(evtype, scanx, chary, devid);
+ 	}
+ 
 diff --git a/source/menu/main.qc b/source/menu/main.qc
 index e9c007e..1c44344 100644
 --- a/source/menu/main.qc
