@@ -10,6 +10,55 @@ index 47aea3b..54a9c7b 100644
  		setlocaluserinfo(0, "using_gamepad", "1");
  	}
  	else
+diff --git a/source/menu/main.qc b/source/menu/main.qc
+index e9c007e..1c44344 100644
+--- a/source/menu/main.qc
++++ b/source/menu/main.qc
+@@ -300,6 +300,27 @@ void(float wantmode) m_toggle =
+ 	}
+ };
+ 
++// Go up one menu level (for the controller B / "back" button). NZ:P has no engine-level
++// back-one-level key, so map each menu to its parent here.
++void() Menu_GoBack =
++{
++	Menu_PlaySound(MENU_SND_ENTER);
++	if (current_menu == MENU_VIDEO || current_menu == MENU_AUDIO || current_menu == MENU_CONTROL || current_menu == MENU_ACCESSIBILITY)
++		current_menu = MENU_OPTIONS;
++	else if (current_menu == MENU_GAMEPAD || current_menu == MENU_BINDINGS)
++		current_menu = MENU_CONTROL;
++	else if (current_menu == MENU_GAMESETTINGS)
++		current_menu = MENU_LOBBY;
++	else if (current_menu == MENU_COOPJOIN || current_menu == MENU_COOPCREATE)
++		current_menu = MENU_COOP;
++	else if (current_menu == MENU_COOPBROWSE || current_menu == MENU_COOPDIRECT)
++		current_menu = MENU_COOPJOIN;
++	else if (current_menu == MENU_PAUSE)
++		m_close();					// resume the game
++	else if (current_menu != MENU_MAIN)
++		current_menu = MENU_MAIN;	// any other submenu falls back to the main menu
++};
++
+ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
+ {
+ 	last_input_deviceid = devid;
+@@ -325,8 +346,15 @@ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
+ 		return TRUE;
+ 	}
+ 
++	// Controller B = back one menu level (unless we're mid key-rebind).
++	if (evtype == IE_KEYDOWN && scanx == K_GP_B && _sui_binding_command == "")
++	{
++		Menu_GoBack();
++		return TRUE;
++	}
++
+ 	float used = sui_input_event(evtype, scanx, chary, devid);
+-	
++
+ 	if (evtype == IE_KEYDOWN && !used)
+ 	{
+ 		string cmd = getkeybind(scanx);
 diff --git a/source/menu/menu_vide.qc b/source/menu/menu_vide.qc
 index add610e..491ede3 100644
 --- a/source/menu/menu_vide.qc
