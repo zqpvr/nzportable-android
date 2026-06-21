@@ -129,10 +129,10 @@ index 3927ff5..1b478fb 100644
  	{
  		Sys_Printf("FTENativeActivity_openfile: %s\n", tmp);
 diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
-index ca78a9e..a39a171 100644
+index ca78a9e..2cbb083 100644
 --- a/engine/droid/src/com/fteqw/FTENativeActivity.java
 +++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
-@@ -91,21 +91,182 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -91,21 +91,186 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  
  //		byte[] nativeSavedState = savedInstanceState != null
  //			? savedInstanceState.getByteArray(KEY_NATIVE_SAVED_STATE) : null;
@@ -166,6 +166,10 @@ index ca78a9e..a39a171 100644
 +		setFullscreen();
  
  		super.onCreate(savedInstanceState);
++
++		//Volume keys should drive the media stream (the game mixes through STREAM_MUSIC), so the
++		//slider that pops up matches what actually gets louder/quieter.
++		setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
 +
 +		audioStart();
 +	}
@@ -249,7 +253,8 @@ index ca78a9e..a39a171 100644
 +		while ((n = is.read(b)) > 0) bo.write(b, 0, n);
 +		is.close();
 +		return bo.toString("UTF-8").trim();
-+	}
+ 	}
+-	
 +
 +	//audio: FTENativeActivity's frame loop runs in native code, so (unlike FTEDroidActivity)
 +	//there is no Java-side per-frame trigger to start playback. This thread polls the engine's
@@ -319,15 +324,24 @@ index ca78a9e..a39a171 100644
 +	{
 +		audioStop();
 +		super.onDestroy();
- 	}
--	
++	}
 +
  	//random helpers
  	private void handleIntent(android.content.Intent intent)
  	{
-@@ -264,6 +425,9 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -263,7 +428,19 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ 	@Override
  	public boolean dispatchKeyEvent(KeyEvent event)
  	{	//needed because AKeyEvent_getUnicode is missing completely.
++		//Let the system handle the volume keys so Android changes the volume AND shows its slider
++		//overlay. Otherwise we consume every key below (return true) and volume control is dead.
++		switch (event.getKeyCode())
++		{
++		case KeyEvent.KEYCODE_VOLUME_UP:
++		case KeyEvent.KEYCODE_VOLUME_DOWN:
++		case KeyEvent.KEYCODE_VOLUME_MUTE:
++			return super.dispatchKeyEvent(event);
++		}
  		int act = event.getAction();
 +		//Tag gamepad input with a non-zero device id so the game (CSQC) detects a controller
 +		//(it keys glyph prompts and aim assist off devid>0). in_forceseat routes it to player 1.
@@ -335,7 +349,7 @@ index ca78a9e..a39a171 100644
  		if (act == KeyEvent.ACTION_DOWN)
  		{
  			int metastate = event.getMetaState();
-@@ -273,12 +437,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -273,12 +450,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (unichar == 0)
  				unichar = event.getDisplayLabel();
  
@@ -350,7 +364,7 @@ index ca78a9e..a39a171 100644
  			return true;
  		}
  		else
-@@ -335,7 +499,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -335,7 +512,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  		try
  		{
  			MotionEvent_getAxisValueJ = MotionEvent.class.getMethod("getAxisValue", int.class); //api12
@@ -359,7 +373,7 @@ index ca78a9e..a39a171 100644
  			AXIS_X = (Integer)MotionEvent.class.getField("AXIS_X").get(null);
  			AXIS_Y = (Integer)MotionEvent.class.getField("AXIS_Y").get(null);
  			AXIS_LTRIGGER = (Integer)MotionEvent.class.getField("AXIS_LTRIGGER").get(null);
-@@ -359,16 +523,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -359,16 +536,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (range != null)
  			{
  				final float flat = range.getFlat();
@@ -406,7 +420,7 @@ index ca78a9e..a39a171 100644
  	private boolean motionEvent(MotionEvent event)
  	{
  		int id;
-@@ -388,6 +580,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -388,6 +593,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			handleJoystickAxis(event, dev, AXIS_RZ, 4);
  			handleJoystickAxis(event, dev, AXIS_RTRIGGER, 5);
  
