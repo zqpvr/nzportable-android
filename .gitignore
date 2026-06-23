@@ -20,8 +20,5 @@ captures/
 .DS_Store
 Thumbs.db
 
-# Bundled game data (large; fetched/placed during the data-packaging step)
-/app/src/main/assets/nzp/
-
 # Internal planning doc (local only)
 PLAN.md
