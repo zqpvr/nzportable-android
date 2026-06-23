@@ -47,6 +47,29 @@ index 47aea3b..1184da8 100644
  		return sui_input_event(evtype, scanx, chary, devid);
  	}
  
+diff --git a/source/menu/m_menu.qc b/source/menu/m_menu.qc
+index 91dc9fc..c667570 100644
+--- a/source/menu/m_menu.qc
++++ b/source/menu/m_menu.qc
+@@ -806,6 +806,18 @@ void(string id, vector pos, vector size, __inout vector scrollofs, float num_ser
+ 	int map_display_x = 0;
+ 	int player_display_x = 0;
+ 
++	//Keep the gamepad-selected row on screen: if the focused element is one of our rows, scroll to it.
++	string hovprefix = strcat(id, "scrl");
++	if (substring(_hover_actions[0], 0, strlen(hovprefix)) == hovprefix)
++	{
++		float sel = stof(substring(_hover_actions[0], strlen(hovprefix), -1));
++		float seltop = sel * rowsize.y;
++		if (seltop < scrollofs.y)
++			scrollofs.y = seltop;
++		else if (seltop + rowsize.y > scrollofs.y + size.y)
++			scrollofs.y = seltop + rowsize.y - size.y;
++	}
++
+ 	sui_list_view_begin(strcat(id, "scrl"), pos, size, rowsize, num_servers, scrollofs, [0, 16]);
+ 	for (float index = sui_list_item(listitem_pos); index > -1; index = sui_list_item(listitem_pos))
+ 	{
 diff --git a/source/menu/main.qc b/source/menu/main.qc
 index e9c007e..1c44344 100644
 --- a/source/menu/main.qc
@@ -96,6 +119,68 @@ index e9c007e..1c44344 100644
  	if (evtype == IE_KEYDOWN && !used)
  	{
  		string cmd = getkeybind(scanx);
+diff --git a/source/menu/menu_coop.qc b/source/menu/menu_coop.qc
+index def4893..aa104b9 100644
+--- a/source/menu/menu_coop.qc
++++ b/source/menu/menu_coop.qc
+@@ -147,7 +147,7 @@ void() Menu_Coop_Browse =
+ 	if (!sui_is_hovered("cbm_refresh") && !sui_is_hovered("cbm_back"))
+ 	{
+ 		sui_set_align([SUI_ALIGN_CENTER, SUI_ALIGN_END]);
+-		sui_text([0, -30], MENU_TEXT_MEDIUM, "NOTE: Keyboard or gamepad is not supported for server selection.", [1, 1, 1], 1, 0);
++		sui_text([0, -30], MENU_TEXT_MEDIUM, "Select a server and press confirm (or tap) to connect.", [1, 1, 1], 1, 0);
+ 	}
+ 
+ 	sui_pop_frame();
+@@ -312,7 +312,23 @@ string(string prev_id) fn ## _GetNextButton =	\
+ 	return ret;									\
+ };
+ 
+-NEXTBUTTON_FUNC(Menu_Coop_Browse, menu_coop_browse_buttons)
++//Browse needs a custom traversal: step through each server row (cbm_serverlistscrl<i>) so the
++//controller can pick a server, then the Refresh/Back buttons. Reusing the row ids means the
++//existing hover-highlight and click-to-connect paths work for the gamepad for free.
++string(string prev_id) Menu_Coop_Browse_GetNextButton =
++{
++	float n = num_cached_servers;
++	if (prev_id == "")
++		return (n > 0) ? "cbm_serverlistscrl0" : "cbm_refresh";
++	if (substring(prev_id, 0, 18) == "cbm_serverlistscrl")
++	{
++		float idx = stof(substring(prev_id, 18, -1));
++		return (idx + 1 < n) ? strcat("cbm_serverlistscrl", ftos(idx + 1)) : "cbm_refresh";
++	}
++	if (prev_id == "cbm_refresh")
++		return "cbm_back";
++	return (n > 0) ? "cbm_serverlistscrl0" : "cbm_refresh";	//cbm_back (or unknown) -> wrap to top
++};
+ NEXTBUTTON_FUNC(Menu_Coop_Direct, menu_coop_direct_buttons)
+ NEXTBUTTON_FUNC(Menu_Coop_Join, menu_coop_join_buttons)
+ NEXTBUTTON_FUNC(Menu_Coop_Create, menu_coop_create_buttons)
+@@ -341,7 +357,22 @@ string(string next_id) fn ## _GetPreviousButton =	\
+ 	return ret;										\
+ };
+ 
+-PREVBUTTON_FUNC(Menu_Coop_Browse, menu_coop_browse_buttons)
++string(string next_id) Menu_Coop_Browse_GetPreviousButton =
++{
++	float n = num_cached_servers;
++	if (next_id == "")
++		return "cbm_back";
++	if (substring(next_id, 0, 18) == "cbm_serverlistscrl")
++	{
++		float idx = stof(substring(next_id, 18, -1));
++		return (idx - 1 >= 0) ? strcat("cbm_serverlistscrl", ftos(idx - 1)) : "cbm_back";	//above first server -> wrap to back
++	}
++	if (next_id == "cbm_back")
++		return "cbm_refresh";
++	if (next_id == "cbm_refresh")
++		return (n > 0) ? strcat("cbm_serverlistscrl", ftos(n - 1)) : "cbm_back";
++	return "cbm_back";
++};
+ PREVBUTTON_FUNC(Menu_Coop_Direct, menu_coop_direct_buttons)
+ PREVBUTTON_FUNC(Menu_Coop_Join, menu_coop_join_buttons)
+ PREVBUTTON_FUNC(Menu_Coop_Create, menu_coop_create_buttons)
 diff --git a/source/menu/menu_vide.qc b/source/menu/menu_vide.qc
 index add610e..491ede3 100644
 --- a/source/menu/menu_vide.qc
@@ -151,7 +236,7 @@ index add610e..491ede3 100644
      Menu_Button(-2, "vm_apply", "APPLY", "Save & Apply Settings.") ? Menu_Video_ApplySettings() : 0;
      Menu_Button(-1, "vm_back", "BACK", "Return to Configuration Menu.") ? current_menu = MENU_OPTIONS : 0;
 diff --git a/source/menu/sui_sys.qc b/source/menu/sui_sys.qc
-index 6be6baf..d83afa2 100644
+index 6be6baf..1c9b92b 100644
 --- a/source/menu/sui_sys.qc
 +++ b/source/menu/sui_sys.qc
 @@ -871,12 +871,12 @@ float(float evtype, float scanx, float chary, float devid) sui_input_event =
@@ -184,3 +269,12 @@ index 6be6baf..d83afa2 100644
  		{
  			_sui_menukey_rightarrow();
  			return TRUE;
+@@ -939,7 +939,7 @@ void(float width, float height) sui_begin =
+ {
+ 	_action_elements_index = 0;
+ 	_sui_draw_initialized = TRUE;
+-	
++
+ 	sui_reset_frame();
+ 	sui_push_frame([0, 0], [width, height]);
+ }
