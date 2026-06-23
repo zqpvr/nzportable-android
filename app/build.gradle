@@ -16,8 +16,9 @@ android {
         applicationId 'gay.nzp.nzportable'
         minSdk 24          // GLES2 + arm64; covers the vast majority of active devices
         targetSdk 34
-        versionCode 1
-        versionName '0.1-android'
+        // versionCode can be overridden by CI (e.g. the run number) so each auto-build is unique.
+        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName '0.1.0'
 
         ndk {
             // arm64 first. Add 'armeabi-v7a' once arm64 is confirmed working.
@@ -87,14 +88,31 @@ android {
         }
     }
 
+    signingConfigs {
+        // Release signing is driven by env vars so the same setup works locally and in CI
+        // (CI provides them from repo secrets). Falls back to the debug key when unset.
+        release {
+            def kf = System.getenv('KEYSTORE_FILE')
+            if (kf != null) {
+                storeFile file(kf)
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // keep it simple for the first bring-up
             jniDebuggable true
         }
         release {
+            // minify must stay off: R8 would strip the JNI-registered native methods
+            // (FTENativeActivity / FTEDroidEngine) since nothing calls them from Java.
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            ndk { debugSymbolLevel 'none' }   // strip native debug symbols -> smaller .so in the APK
+            signingConfig System.getenv('KEYSTORE_FILE') != null ? signingConfigs.release : signingConfigs.debug
         }
     }
 
