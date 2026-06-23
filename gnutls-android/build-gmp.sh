@@ -1,29 +1,26 @@
 #!/usr/bin/env bash
+# Cross-compile GMP for Android arm64 with the NDK's clang. Step 1 of 3 (GMP -> Nettle -> GnuTLS).
+# Run from a build dir under a unix shell (MSYS2 on Windows). See README.md in this folder.
 set -e
-NDK=/c/Users/Leland/AppData/Local/Android/Sdk/ndk/26.3.11579264
-TC=$NDK/toolchains/llvm/prebuilt/windows-x86_64/bin
-export PATH="$TC:/usr/bin:/bin:$PATH"
-export STAGING=/c/Users/Leland/android-dev/tls-build/sysroot
-API=24
+: "${NDK:?export NDK=/path/to/Android/Sdk/ndk/26.3.11579264}"
+WORK="${WORK:-$PWD}"
+HOST="${NDK_HOST:-windows-x86_64}"            # NDK prebuilt host dir (linux-x86_64 / darwin-x86_64 / windows-x86_64)
+TC="$NDK/toolchains/llvm/prebuilt/$HOST/bin"
+API="${API:-24}"
+export PATH="$TC:$PATH"
+export STAGING="$WORK/sysroot"
 export CC="clang --target=aarch64-linux-android$API"
 export AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip NM=llvm-nm
 export CFLAGS="-fPIC -O2"
-mkdir -p /c/Users/Leland/android-dev/tls-build/tmp
-export TMPDIR="C:/Users/Leland/android-dev/tls-build/tmp"; export TMP="$TMPDIR" TEMP="$TMPDIR"
+# The Windows NDK clang needs a Windows-style temp dir; on MSYS2 set WINTMP (e.g. C:/build/tmp).
+if [ -n "$WINTMP" ]; then mkdir -p "$WINTMP"; export TMPDIR="$WINTMP" TMP="$WINTMP" TEMP="$WINTMP"; fi
 
-cd /c/Users/Leland/android-dev/tls-build
+cd "$WORK"
 rm -rf gmp-6.3.0
 tar xf gmp-6.3.0.tar.xz
 cd gmp-6.3.0
-
-echo "===== configure gmp ====="
 ./configure --host=aarch64-linux-android --prefix="$STAGING" \
   --disable-shared --enable-static --disable-assembly \
-  CC="$CC" AR="$AR" RANLIB="$RANLIB" NM="$NM" 2>&1 | tail -20
-
-echo "===== make gmp ====="
-make -j4 2>&1 | tail -8
-make install 2>&1 | tail -5
-echo "===== result ====="
-ls -la "$STAGING/lib/libgmp.a" 2>&1
-llvm-readelf -h "$STAGING/lib/libgmp.a" 2>/dev/null | grep -i machine | head -1
+  CC="$CC" AR="$AR" RANLIB="$RANLIB" NM="$NM"
+make -j4
+make install
