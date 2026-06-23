@@ -43,7 +43,13 @@ android {
                           // ftedroid is an ADD_LIBRARY(... MODULE), hence MODULE_LINKER_FLAGS.
                           '-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384,-z,common-page-size=16384',
                           // Build as NZ:P (nzp game default + branding), not generic FTEQW.
-                          "-DFTE_BUILD_CONFIG=${nzpBuildConfig}".toString()
+                          "-DFTE_BUILD_CONFIG=${nzpBuildConfig}".toString(),
+                          // Compile FTE's GnuTLS backend (DTLS/TLS) for the NZ:P online broker.
+                          // FIND_PACKAGE(GnuTLS) fails in the NDK sysroot and would define
+                          // NO_GNUTLS (disabling HAVE_GNUTLS, hence HAVE_DTLS), so skip it. We
+                          // supply the headers via -I (below) and a self-contained libgnutls.so
+                          // via jniLibs, loaded at runtime by dlopen (GNUTLS_DYNAMIC default).
+                          '-DFTE_DEP_GNUTLS=false'
                 // The Android renderer is the GLES backend (gl_viddroid.c), which needs
                 // GLQUAKE + USE_EGL. But CMake's FIND_PACKAGE(OpenGL) fails in the NDK
                 // sysroot, so it defines NO_OPENGL, and bothdefs.h then #undef's GLQUAKE
@@ -55,8 +61,10 @@ android {
                 // AVAIL_STBI: decode PNG/JPG via in-tree stb_image (engine/libs/), since the
                 // NDK build has no libpng/libjpeg (CMake defines NO_PNG/NO_JPEG). NZ:P's menu
                 // art is PNG. Headers vendored into the fteqw submodule's engine/libs/.
-                cFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon', '-DAVAIL_STBI'
-                cppFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon', '-DAVAIL_STBI'
+                // -I gnutls-include: vendored GnuTLS headers so net_ssl_gnutls.c compiles
+                // (the matching libgnutls.so ships in jniLibs/arm64-v8a and is dlopen'd at runtime).
+                cFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon', '-DAVAIL_STBI', "-I${projectDir.toString().replace('\\', '/')}/gnutls-include".toString()
+                cppFlags '-UNO_OPENGL', '-DGLQUAKE', '-fcommon', '-DAVAIL_STBI', "-I${projectDir.toString().replace('\\', '/')}/gnutls-include".toString()
                 targets 'ftedroid'
             }
         }
