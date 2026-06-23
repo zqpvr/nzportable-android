@@ -21,9 +21,11 @@ jobs:
 
       - name: Update engine to latest and apply our patch
         run: |
-          git -C fteqw fetch --depth 1 origin
-          git -C fteqw checkout -f origin/master 2>/dev/null || git -C fteqw checkout -f origin/main
-          git apply --3way patches/0001-fteqw-android-build.patch
+          # patch paths are relative to fteqw/, so apply from inside it
+          ( cd fteqw
+            git fetch origin
+            git checkout -f origin/master 2>/dev/null || git checkout -f origin/main
+            git apply --3way ../patches/0001-fteqw-android-build.patch )
 
       - name: Build game code (.dats) from latest quakec + our patch
         run: |
