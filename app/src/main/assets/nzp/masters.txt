@@ -1,0 +1,4 @@
+# LAN discovery: broadcast a QuakeWorld/FTE server query across the local network so
+# NZ:P listen-servers on this LAN show up in the Co-op > Browse list. 27500 is the
+# default sv_port; add more "<bcast-ip>:<port> bcast" lines for non-default ports.
+255.255.255.255:27500 bcast
