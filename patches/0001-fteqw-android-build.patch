@@ -171,7 +171,7 @@ index dcc2340..2bac706 100644
  	gnutls.hmod = Sys_LoadLibrary("libgnutls"GNUTLS_SOPREFIX".so", functable);	//hope and pray
  #endif
 diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
-index ca78a9e..64adf88 100644
+index ca78a9e..f49706d 100644
 --- a/engine/droid/src/com/fteqw/FTENativeActivity.java
 +++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
 @@ -21,6 +21,11 @@ public class FTENativeActivity extends android.app.Activity implements android.v
@@ -186,7 +186,7 @@ index ca78a9e..64adf88 100644
  		System.loadLibrary("ftedroid");	//registers the methods properly.
  	}
  
-@@ -91,21 +96,186 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -91,21 +96,210 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  
  //		byte[] nativeSavedState = savedInstanceState != null
  //			? savedInstanceState.getByteArray(KEY_NATIVE_SAVED_STATE) : null;
@@ -226,7 +226,8 @@ index ca78a9e..64adf88 100644
 +		setVolumeControlStream(android.media.AudioManager.STREAM_MUSIC);
 +
 +		audioStart();
-+	}
+ 	}
+-	
 +
 +	//Immersive fullscreen: hide the status + navigation bars. STICKY lets a swipe reveal them
 +	//transiently. setSystemUiVisibility is deprecated but still the most broadly-compatible way.
@@ -307,8 +308,7 @@ index ca78a9e..64adf88 100644
 +		while ((n = is.read(b)) > 0) bo.write(b, 0, n);
 +		is.close();
 +		return bo.toString("UTF-8").trim();
- 	}
--	
++	}
 +
 +	//audio: FTENativeActivity's frame loop runs in native code, so (unlike FTEDroidActivity)
 +	//there is no Java-side per-frame trigger to start playback. This thread polls the engine's
@@ -336,11 +336,35 @@ index ca78a9e..64adf88 100644
 +				{
 +					int chans = (schannels >= 2) ? android.media.AudioFormat.CHANNEL_OUT_STEREO : android.media.AudioFormat.CHANNEL_OUT_MONO;
 +					int enc = (sbits == 8) ? android.media.AudioFormat.ENCODING_PCM_8BIT : android.media.AudioFormat.ENCODING_PCM_16BIT;
-+					int sz = 2 * android.media.AudioTrack.getMinBufferSize(sspeed, chans, enc);
-+					at = new android.media.AudioTrack(android.media.AudioManager.STREAM_MUSIC, sspeed, chans, enc, sz, android.media.AudioTrack.MODE_STREAM);
++					int minbuf = android.media.AudioTrack.getMinBufferSize(sspeed, chans, enc);
++					//Low audio latency: the old 2*getMinBufferSize buffer with no perf hint was ~160ms.
++					//On API 26+ request the fast/low-latency path (the engine already outputs 48kHz =
++					//device native) with a small buffer of a few native bursts (~20ms) instead.
++					if (android.os.Build.VERSION.SDK_INT >= 26)
++					{
++						int framebytes = (schannels >= 2 ? 2 : 1) * (sbits == 8 ? 1 : 2);
++						int sz = Math.max(minbuf, 4096);
++						try {
++							android.media.AudioManager am = (android.media.AudioManager)getSystemService(android.content.Context.AUDIO_SERVICE);
++							int nf = Integer.parseInt(am.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER));
++							if (nf > 0) sz = Math.max(nf * framebytes * 4, 4096);	//~4 native bursts, >= one audbuf write
++						} catch (Throwable t) {}
++						at = new android.media.AudioTrack.Builder()
++							.setAudioAttributes(new android.media.AudioAttributes.Builder()
++								.setUsage(android.media.AudioAttributes.USAGE_GAME)
++								.setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
++							.setAudioFormat(new android.media.AudioFormat.Builder()
++								.setSampleRate(sspeed).setChannelMask(chans).setEncoding(enc).build())
++							.setBufferSizeInBytes(sz)
++							.setPerformanceMode(android.media.AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
++							.setTransferMode(android.media.AudioTrack.MODE_STREAM)
++							.build();
++					}
++					else
++						at = new android.media.AudioTrack(android.media.AudioManager.STREAM_MUSIC, sspeed, chans, enc, 2 * minbuf, android.media.AudioTrack.MODE_STREAM);
 +					at.play();
 +				}
-+				catch (IllegalArgumentException e) { return; }
++				catch (Throwable e) { return; }
 +			}
 +			if (at == null) return;
 +			while (!timetodie)
@@ -383,7 +407,7 @@ index ca78a9e..64adf88 100644
  	//random helpers
  	private void handleIntent(android.content.Intent intent)
  	{
-@@ -263,7 +433,19 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -263,7 +457,19 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  	@Override
  	public boolean dispatchKeyEvent(KeyEvent event)
  	{	//needed because AKeyEvent_getUnicode is missing completely.
@@ -403,7 +427,7 @@ index ca78a9e..64adf88 100644
  		if (act == KeyEvent.ACTION_DOWN)
  		{
  			int metastate = event.getMetaState();
-@@ -273,12 +455,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -273,12 +479,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (unichar == 0)
  				unichar = event.getDisplayLabel();
  
@@ -418,7 +442,7 @@ index ca78a9e..64adf88 100644
  			return true;
  		}
  		else
-@@ -335,7 +517,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -335,7 +541,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  		try
  		{
  			MotionEvent_getAxisValueJ = MotionEvent.class.getMethod("getAxisValue", int.class); //api12
@@ -427,7 +451,7 @@ index ca78a9e..64adf88 100644
  			AXIS_X = (Integer)MotionEvent.class.getField("AXIS_X").get(null);
  			AXIS_Y = (Integer)MotionEvent.class.getField("AXIS_Y").get(null);
  			AXIS_LTRIGGER = (Integer)MotionEvent.class.getField("AXIS_LTRIGGER").get(null);
-@@ -359,16 +541,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -359,16 +565,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (range != null)
  			{
  				final float flat = range.getFlat();
@@ -474,7 +498,7 @@ index ca78a9e..64adf88 100644
  	private boolean motionEvent(MotionEvent event)
  	{
  		int id;
-@@ -388,6 +598,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -388,6 +622,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			handleJoystickAxis(event, dev, AXIS_RZ, 4);
  			handleJoystickAxis(event, dev, AXIS_RTRIGGER, 5);
  
