@@ -1,12 +1,13 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c70192a..b0d8157 100644
+index c70192a..5babaa4 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1040,6 +1040,7 @@ IF(ANDROID)
+@@ -1040,6 +1040,8 @@ IF(ANDROID)
  			${FTE_ARCH_FILES}
  			${FTE_COMMON_FILES}
  			${FTE_CLIENT_FILES}
 +			${FTE_SERVER_FILES}	#NZ:P is single-player and runs a listen server, so the client references SV_*/sv/svs. Include the server sources.
++			engine/common/net_ssl_gnutls.c	#TLS/DTLS backend for the online broker (guarded by HAVE_GNUTLS; dlopen's the bundled libgnutls.so)
  		)
  		SET_TARGET_PROPERTIES(ftedroid PROPERTIES COMPILE_DEFINITIONS "${FTE_LIB_DEFINES};${FTE_DEFINES};${FTE_REVISON}")
  		TARGET_INCLUDE_DIRECTORIES(ftedroid PUBLIC ${FTE_INCLUDES})
@@ -128,11 +129,36 @@ index 3927ff5..1b478fb 100644
  	if (tmp)
  	{
  		Sys_Printf("FTENativeActivity_openfile: %s\n", tmp);
+diff --git a/engine/common/net_ssl_gnutls.c b/engine/common/net_ssl_gnutls.c
+index dcc2340..2bac706 100644
+--- a/engine/common/net_ssl_gnutls.c
++++ b/engine/common/net_ssl_gnutls.c
+@@ -214,6 +214,8 @@ static qboolean Init_GNUTLS(void)
+ 	#else
+ 		gnutls.hmod = Sys_LoadLibrary("libgnutls"GNUTLS_SOPREFIX".so."STRINGIFY(GNUTLS_SONUM), functable);
+ 	#endif
++	if (!gnutls.hmod)	//Android ships an unversioned libgnutls.so (APK libs can't carry a .so.NN
++		gnutls.hmod = Sys_LoadLibrary("libgnutls"GNUTLS_SOPREFIX".so", functable);	//soname); fall back to it.
+ #else
+ 	gnutls.hmod = Sys_LoadLibrary("libgnutls"GNUTLS_SOPREFIX".so", functable);	//hope and pray
+ #endif
 diff --git a/engine/droid/src/com/fteqw/FTENativeActivity.java b/engine/droid/src/com/fteqw/FTENativeActivity.java
-index ca78a9e..2cbb083 100644
+index ca78a9e..64adf88 100644
 --- a/engine/droid/src/com/fteqw/FTENativeActivity.java
 +++ b/engine/droid/src/com/fteqw/FTENativeActivity.java
-@@ -91,21 +91,186 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -21,6 +21,11 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+ //	private static native void oncreate(String bindir, String basedir, byte[] savedstate);
+ 	static
+ 	{
++		//Load the bundled GnuTLS (TLS/DTLS for the online broker) up front. FTE's net_ssl_gnutls
++		//backend dlopen()s "libgnutls.so" lazily, but a bare dlopen by name can fail to locate an
++		//app-bundled lib; System.loadLibrary resolves it via the app's lib path, after which FTE's
++		//dlopen just gets the already-loaded handle. Optional, so don't let its absence be fatal.
++		try { System.loadLibrary("gnutls"); } catch (Throwable t) { android.util.Log.w("FTEDroid", "gnutls not loaded: " + t); }
+ 		System.loadLibrary("ftedroid");	//registers the methods properly.
+ 	}
+ 
+@@ -91,21 +96,186 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  
  //		byte[] nativeSavedState = savedInstanceState != null
  //			? savedInstanceState.getByteArray(KEY_NATIVE_SAVED_STATE) : null;
@@ -329,7 +355,7 @@ index ca78a9e..2cbb083 100644
  	//random helpers
  	private void handleIntent(android.content.Intent intent)
  	{
-@@ -263,7 +428,19 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -263,7 +433,19 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  	@Override
  	public boolean dispatchKeyEvent(KeyEvent event)
  	{	//needed because AKeyEvent_getUnicode is missing completely.
@@ -349,7 +375,7 @@ index ca78a9e..2cbb083 100644
  		if (act == KeyEvent.ACTION_DOWN)
  		{
  			int metastate = event.getMetaState();
-@@ -273,12 +450,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -273,12 +455,12 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (unichar == 0)
  				unichar = event.getDisplayLabel();
  
@@ -364,7 +390,7 @@ index ca78a9e..2cbb083 100644
  			return true;
  		}
  		else
-@@ -335,7 +512,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -335,7 +517,7 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  		try
  		{
  			MotionEvent_getAxisValueJ = MotionEvent.class.getMethod("getAxisValue", int.class); //api12
@@ -373,7 +399,7 @@ index ca78a9e..2cbb083 100644
  			AXIS_X = (Integer)MotionEvent.class.getField("AXIS_X").get(null);
  			AXIS_Y = (Integer)MotionEvent.class.getField("AXIS_Y").get(null);
  			AXIS_LTRIGGER = (Integer)MotionEvent.class.getField("AXIS_LTRIGGER").get(null);
-@@ -359,16 +536,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -359,16 +541,44 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			if (range != null)
  			{
  				final float flat = range.getFlat();
@@ -420,7 +446,7 @@ index ca78a9e..2cbb083 100644
  	private boolean motionEvent(MotionEvent event)
  	{
  		int id;
-@@ -388,6 +593,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
+@@ -388,6 +598,10 @@ public class FTENativeActivity extends android.app.Activity implements android.v
  			handleJoystickAxis(event, dev, AXIS_RZ, 4);
  			handleJoystickAxis(event, dev, AXIS_RTRIGGER, 5);
  

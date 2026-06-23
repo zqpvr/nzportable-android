@@ -45,3 +45,31 @@ that file is exec'd last it **overrides both nzportable.cfg and our manifest
 binds/cvars**. So a stale `user_settings.cfg` will silently pin `vid_renderer`
 and the controller layout. Delete it to fall back to defaults.
 
+## Online multiplayer (GnuTLS for the broker's TLS/DTLS)
+NZ:P 2.0's online play uses FTE's ICE broker (`tls://master.frag-net.com`), which
+**requires DTLS** (`net_ice.c`: "dtls+sctp is a mandatory part of our connection").
+FTE's only crypto backend is GnuTLS, `dlopen`'d at runtime - absent on Android. So
+we cross-compile GnuTLS for arm64 and bundle it:
+
+- `gnutls-android/build-{gmp,nettle,gnutls}.sh` build the chain with the NDK clang
+  under MSYS2: GMP (`--disable-assembly`) -> Nettle (real GMP) -> GnuTLS (minimal:
+  included libtasn1/unistring, no p11-kit/idn/doc/tools), with GMP+Nettle
+  **static-linked** into one self-contained `libgnutls.so` (NEEDED = libc/libdl
+  only). Built with `-Wl,-z,max-page-size=16384` so its LOAD segments are 16 KB
+  aligned (16 KB-page devices reject 4 KB-aligned libs - that was the `dlopen` fail).
+- Vendored: `app/src/main/jniLibs/arm64-v8a/libgnutls.so` + `app/gnutls-include/`.
+- Build wiring (patch 0001 + build.gradle): `net_ssl_gnutls.c` added to the
+  `ftedroid` target; `-DFTE_DEP_GNUTLS=false` so CMake's failing `FIND_PACKAGE(GnuTLS)`
+  doesn't define `NO_GNUTLS`; `-I app/gnutls-include` for the headers.
+- Runtime (patch 0001): `System.loadLibrary("gnutls")` in `FTENativeActivity`, plus
+  a fallback in `net_ssl_gnutls.c` from the versioned soname (`libgnutls.so.30`,
+  which an APK can't carry) to the bare `libgnutls.so`.
+
+Verified: the engine loads GnuTLS, generates a DTLS cert, and registers with
+master.frag-net.com. (DTLS interop with the Windows host's SChannel backend is the
+remaining piece.)
+
+### LAN discovery
+`masters.txt` (game data) adds a `bcast` master so the Co-op > Browse refresh
+broadcasts a QW/FTE query across the local network, listing LAN listen-servers.
+
