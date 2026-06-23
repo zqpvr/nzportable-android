@@ -19,36 +19,39 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Update engine to latest and apply our patch
-        run: |
-          # patch paths are relative to fteqw/, so apply from inside it
-          ( cd fteqw
-            git fetch origin
-            git checkout -f origin/master 2>/dev/null || git checkout -f origin/main
-            git apply --3way ../patches/0001-fteqw-android-build.patch )
+      - name: Apply our engine patch
+        # The engine is pinned at the submodule commit the patch targets (applies cleanly).
+        # Bump it manually + regenerate the patch when upstream's Android-relevant files change;
+        # the game code and data below are what move between nightlies.
+        run: ( cd fteqw && git apply --3way ../patches/0001-fteqw-android-build.patch )
 
-      - name: Build game code (.dats) from latest quakec + our patch
+      - name: Build game code (.dats) from latest quakec, else keep bundled
         run: |
-          git clone --depth 1 https://github.com/nzp-team/quakec.git quakec
-          git -C quakec apply --3way ../patches/0002-nzp-quakec.patch
-          chmod +x quakec/bin/fteqcc-cli-lin
-          ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
+          mkdir -p /tmp/keep
+          # default: the .dats already bundled in the repo
+          cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat /tmp/keep/
+          if git clone --depth 1 https://github.com/nzp-team/quakec.git quakec \
+             && ( cd quakec && git apply --3way ../patches/0002-nzp-quakec.patch ); then
+            chmod +x quakec/bin/fteqcc-cli-lin
+            ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
+            cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat /tmp/keep/
+            echo "Using freshly built .dats from latest quakec"
+          else
+            echo "::warning::quakec patch did not apply to latest; using the bundled .dats"
+          fi
 
       - name: Fetch latest game data (nightly) and overlay our files
         run: |
           # keep our config + LAN list (don't take the upstream ones)
-          cp app/src/main/assets/nzp/nzportable.cfg /tmp/nzportable.cfg
-          cp app/src/main/assets/nzp/masters.txt /tmp/masters.txt
+          cp app/src/main/assets/nzp/nzportable.cfg /tmp/keep/
+          cp app/src/main/assets/nzp/masters.txt   /tmp/keep/
           curl -fL -o nzp.zip https://github.com/nzp-team/nzportable/releases/download/nightly/nzportable-linux64.zip
           rm -rf app/src/main/assets/nzp /tmp/nzpx
           mkdir -p /tmp/nzpx app/src/main/assets
           unzip -q nzp.zip -d /tmp/nzpx
           cp -r "$(find /tmp/nzpx -type d -name nzp | head -1)" app/src/main/assets/nzp
-          # overlay our built game code + preserved config
-          cp quakec/build/fte/csprogs.dat app/src/main/assets/nzp/csprogs.dat
-          cp quakec/build/fte/menu.dat    app/src/main/assets/nzp/menu.dat
-          cp /tmp/nzportable.cfg          app/src/main/assets/nzp/nzportable.cfg
-          cp /tmp/masters.txt             app/src/main/assets/nzp/masters.txt
+          # overlay our game code (fresh or bundled) + preserved config
+          cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
