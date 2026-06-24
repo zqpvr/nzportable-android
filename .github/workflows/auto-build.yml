@@ -23,8 +23,12 @@ jobs:
         # The engine is pinned at the submodule commit the patch targets (applies cleanly).
         # Bump it manually + regenerate the patch when upstream's Android-relevant files change;
         # the game code and data below are what move between nightlies.
-        # strip CR: the patch is stored CRLF (Windows), but the Linux checkout's sources are LF
-        run: ( cd fteqw && tr -d '\r' < ../patches/0001-fteqw-android-build.patch | git apply --3way - )
+        run: |
+          cd fteqw
+          echo "submodule HEAD: $(git rev-parse HEAD)"
+          file CMakeLists.txt engine/client/snd_droid.c
+          echo "--- CMakeLists.txt 1038-1044 ---"; sed -n '1038,1044p' CMakeLists.txt | cat -A
+          tr -d '\r' < ../patches/0001-fteqw-android-build.patch | git apply --3way --ignore-whitespace --recount -
 
       - name: Build game code (.dats) from latest quakec, else keep bundled
         run: |
