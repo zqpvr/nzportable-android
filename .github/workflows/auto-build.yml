@@ -36,8 +36,9 @@ jobs:
           # default: the .dats already bundled in the repo
           cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat /tmp/keep/
           if git clone --depth 1 https://github.com/nzp-team/quakec.git quakec \
-             && ( cd quakec && tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way - ); then
+             && ( cd quakec && tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way --ignore-whitespace - ); then
             chmod +x quakec/bin/fteqcc-cli-lin
+            mkdir -p quakec/build/fte   # fteqcc won't create its output dir
             ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
             cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat /tmp/keep/
             echo "Using freshly built .dats from latest quakec"
