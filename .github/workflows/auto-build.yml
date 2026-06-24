@@ -26,34 +26,55 @@ jobs:
         # tr -d '\r' + --ignore-whitespace: the patch is LF but the engine's sources are CRLF
         run: ( cd fteqw && tr -d '\r' < ../patches/0001-fteqw-android-build.patch | git apply --3way --ignore-whitespace --recount - )
 
-      - name: Build game code (.dats) from latest quakec, else keep bundled
+      - name: Build game code (.dats) from quakec
         run: |
           mkdir -p /tmp/keep
-          # default: the .dats already bundled in the repo
+          # last resort: the .dats already bundled in the repo
           cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat /tmp/keep/
-          if git clone --depth 1 https://github.com/nzp-team/quakec.git quakec \
-             && ( cd quakec && tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way --ignore-whitespace - ); then
+
+          # our patch is LF but quakec's sources are CRLF, hence tr + --ignore-whitespace
+          apply_patch() { tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way --ignore-whitespace -; }
+
+          build_dats() {
             chmod +x quakec/bin/fteqcc-cli-lin
             mkdir -p quakec/build/fte   # fteqcc won't create its output dir
-            ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
+            ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src \
+                            && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
             cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat /tmp/keep/
+          }
+
+          git clone https://github.com/nzp-team/quakec.git quakec
+
+          if ( cd quakec && apply_patch ) && build_dats; then
             echo "Using freshly built .dats from latest quakec"
           else
-            echo "::warning::quakec patch did not apply to latest; using the bundled .dats"
+            # Latest upstream drifted away from the patch. Rather than shipping the
+            # stale bundled .dats, rebuild against the commit the patch was made for --
+            # that still gets our own changes in, just without the newest upstream work.
+            BASE=$(cat patches/0002-base.txt)
+            echo "::warning::patch did not apply to latest quakec; rebuilding at pinned base $BASE"
+            rm -rf quakec/build
+            if ( cd quakec && git checkout -q "$BASE" && git checkout -q -- . && apply_patch ) && build_dats; then
+              echo "Using .dats built at the pinned base"
+            else
+              echo "::error::could not build .dats at the pinned base either; falling back to the bundled ones"
+            fi
           fi
 
       - name: Fetch latest game data (nightly) and overlay our files
         run: |
-          # keep our config + LAN list (don't take the upstream ones)
+          # keep our config + LAN list + on-screen touch control art (not in upstream)
           cp app/src/main/assets/nzp/nzportable.cfg /tmp/keep/
           cp app/src/main/assets/nzp/masters.txt   /tmp/keep/
+          rm -rf /tmp/keep_touch && cp -r app/src/main/assets/nzp/gfx/touch /tmp/keep_touch
           curl -fL -o nzp.zip https://github.com/nzp-team/nzportable/releases/download/nightly/nzportable-linux64.zip
           rm -rf app/src/main/assets/nzp /tmp/nzpx
           mkdir -p /tmp/nzpx app/src/main/assets
           unzip -q nzp.zip -d /tmp/nzpx
           cp -r "$(find /tmp/nzpx -type d -name nzp | head -1)" app/src/main/assets/nzp
-          # overlay our game code (fresh or bundled) + preserved config
+          # overlay our game code (fresh or bundled) + preserved config + touch art
           cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
+          mkdir -p app/src/main/assets/nzp/gfx && cp -r /tmp/keep_touch app/src/main/assets/nzp/gfx/touch
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
