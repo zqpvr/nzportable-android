@@ -1,0 +1,92 @@
+name: Auto build APK
+
+# Rebuilds the signed release APK against the latest NZ:P (engine, game code, and data)
+# and publishes it as a GitHub release. Runs weekly and on manual trigger.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'   # Mondays, 06:00 UTC
+
+permissions:
+  contents: write   # create releases
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Apply our engine patch
+        # The engine is pinned at the submodule commit the patch targets (applies cleanly).
+        # Bump it manually + regenerate the patch when upstream's Android-relevant files change;
+        # the game code and data below are what move between nightlies.
+        # tr -d '\r' + --ignore-whitespace: the patch is LF but the engine's sources are CRLF
+        run: ( cd fteqw && tr -d '\r' < ../patches/0001-fteqw-android-build.patch | git apply --3way --ignore-whitespace --recount - )
+
+      - name: Build game code (.dats) from latest quakec, else keep bundled
+        run: |
+          mkdir -p /tmp/keep
+          # default: the .dats already bundled in the repo
+          cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat /tmp/keep/
+          if git clone --depth 1 https://github.com/nzp-team/quakec.git quakec \
+             && ( cd quakec && tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way --ignore-whitespace - ); then
+            chmod +x quakec/bin/fteqcc-cli-lin
+            mkdir -p quakec/build/fte   # fteqcc won't create its output dir
+            ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
+            cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat /tmp/keep/
+            echo "Using freshly built .dats from latest quakec"
+          else
+            echo "::warning::quakec patch did not apply to latest; using the bundled .dats"
+          fi
+
+      - name: Fetch latest game data (nightly) and overlay our files
+        run: |
+          # keep our config + LAN list (don't take the upstream ones)
+          cp app/src/main/assets/nzp/nzportable.cfg /tmp/keep/
+          cp app/src/main/assets/nzp/masters.txt   /tmp/keep/
+          curl -fL -o nzp.zip https://github.com/nzp-team/nzportable/releases/download/nightly/nzportable-linux64.zip
+          rm -rf app/src/main/assets/nzp /tmp/nzpx
+          mkdir -p /tmp/nzpx app/src/main/assets
+          unzip -q nzp.zip -d /tmp/nzpx
+          cp -r "$(find /tmp/nzpx -type d -name nzp | head -1)" app/src/main/assets/nzp
+          # overlay our game code (fresh or bundled) + preserved config
+          cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+      - run: sdkmanager "ndk;26.3.11579264" "cmake;3.22.1"
+
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed release APK
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleRelease --no-daemon --console=plain
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE=$(date +%Y%m%d)
+          TAG="auto-$DATE-${{ github.run_number }}"
+          DATAVER=$(cat app/src/main/assets/nzp/version.txt 2>/dev/null || echo unknown)
+          mv app/build/outputs/apk/release/app-release.apk "nzportable-android-$TAG.apk"
+          gh release create "$TAG" "nzportable-android-$TAG.apk" \
+            --title "Auto build $DATE" \
+            --notes "Automated build against the latest NZ:P (data $DATAVER)."
