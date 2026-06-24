@@ -44,16 +44,18 @@ jobs:
 
       - name: Fetch latest game data (nightly) and overlay our files
         run: |
-          # keep our config + LAN list (don't take the upstream ones)
+          # keep our config + LAN list + on-screen touch control art (not in upstream)
           cp app/src/main/assets/nzp/nzportable.cfg /tmp/keep/
           cp app/src/main/assets/nzp/masters.txt   /tmp/keep/
+          rm -rf /tmp/keep_touch && cp -r app/src/main/assets/nzp/gfx/touch /tmp/keep_touch
           curl -fL -o nzp.zip https://github.com/nzp-team/nzportable/releases/download/nightly/nzportable-linux64.zip
           rm -rf app/src/main/assets/nzp /tmp/nzpx
           mkdir -p /tmp/nzpx app/src/main/assets
           unzip -q nzp.zip -d /tmp/nzpx
           cp -r "$(find /tmp/nzpx -type d -name nzp | head -1)" app/src/main/assets/nzp
-          # overlay our game code (fresh or bundled) + preserved config
+          # overlay our game code (fresh or bundled) + preserved config + touch art
           cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
+          mkdir -p app/src/main/assets/nzp/gfx && cp -r /tmp/keep_touch app/src/main/assets/nzp/gfx/touch
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
