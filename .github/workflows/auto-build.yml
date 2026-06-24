@@ -70,7 +70,7 @@ jobs:
       - run: sdkmanager "ndk;26.3.11579264" "cmake;3.22.1"
 
       - name: Decode keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '[:space:]' | base64 -d > "$RUNNER_TEMP/release.jks"
 
       - name: Build signed release APK
         env:
