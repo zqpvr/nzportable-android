@@ -1,8 +1,96 @@
+diff --git a/progs/csqc.src b/progs/csqc.src
+index d1ee0b0..05bdd9f 100644
+--- a/progs/csqc.src
++++ b/progs/csqc.src
+@@ -17,6 +17,7 @@ m_menu.qc
+ menu_paus.qc     // Pause Menu
+ menu_opts.qc     // Options Menu
+ menu_vide.qc     // Video Menu
++menu_vadv.qc     // Advanced Video Menu
+ menu_audi.qc     // Audio Menu
+ menu_ctrl.qc     // Control Menu
+ menu_gpad.qc     // Gamepad Menu
+@@ -33,5 +34,6 @@ view_model.qc
+ particles.qc
+ chasecam.qc
+ zombie.qc
++touch.qc
+ main.qc
+ #endlist
+diff --git a/progs/menu.src b/progs/menu.src
+index 6752ff4..38701ed 100644
+--- a/progs/menu.src
++++ b/progs/menu.src
+@@ -15,6 +15,7 @@ menu_main.qc     // Main Menu
+ menu_maps.qc     // Maps Menu
+ menu_opts.qc     // Options Menu
+ menu_vide.qc     // Video Menu
++menu_vadv.qc     // Advanced Video Menu
+ menu_audi.qc     // Audio Menu
+ menu_ctrl.qc     // Control Menu
+ menu_gpad.qc     // Gamepad Menu
+diff --git a/source/client/hud.qc b/source/client/hud.qc
+index a1f4f0f..5eebe52 100644
+--- a/source/client/hud.qc
++++ b/source/client/hud.qc
+@@ -1049,11 +1049,11 @@ void() HUD_Useprint =
+     if (usebutton == "")
+         usebutton = "UNBOUND";
+ 
+-	// If this is a gamepad button, the space we want to reserve
+-	// in the usestring should be a fixed width.
+-	if (Key_IsControllerGlyph(usebutton)) {
++	// If this is a gamepad button (or we're on touch, where we draw an icon),
++	// the space we want to reserve in the usestring should be a fixed width.
++	if (Key_IsControllerGlyph(usebutton) || !last_input_was_gamepad) {
+ 		usespace = " ";
+-	} 
++	}
+ 	// Scale the space in the usestring for the bind according to
+ 	// the bind's name.
+ 	else {
+@@ -1169,7 +1169,9 @@ void() HUD_Useprint =
+ 	if (substring(usestring, 0, 4) == "Hold") {
+ 		button_width = x + getTextWidth("Hold ", 12);
+ 
+-		if (Key_IsControllerGlyph(usebutton))
++		if (!last_input_was_gamepad)	// touch: show the on-screen use button, not a key
++			drawpic([button_width - 4, g_height/2 + 59, 0], "gfx/touch/btn_activate", [20, 20], [1, 1, 0], 1);
++		else if (Key_IsControllerGlyph(usebutton))
+ 			Key_DrawControllerGlyph([button_width - 5, g_height/2 + 62], usebutton, [18, 18]);
+ 		else
+ 			Draw_String([button_width, g_height/2 + 65, 0], usebutton, [12, 12, 0], [1, 1, 0], 1, 0);
 diff --git a/source/client/main.qc b/source/client/main.qc
-index 47aea3b..1184da8 100644
+index 47aea3b..de2d714 100644
 --- a/source/client/main.qc
 +++ b/source/client/main.qc
-@@ -1060,6 +1060,24 @@ void(float scanx, float setval) Input_Movecheck =
+@@ -799,7 +799,9 @@ void(vector client_view_angles) Camera_AimSnap =
+ {
+     float zoom_value = getstatf(STAT_WEAPONZOOM);
+ 
+-	if (!(gamepad_enabled && cvar("in_aimassist") == 1))
++	// controllers get aim assist only when they've enabled it; touch always gets it
++	// (mobile leans on it much harder, like CoD-mobile). controller path is unchanged.
++	if (last_input_was_gamepad && !(gamepad_enabled && cvar("in_aimassist") == 1))
+ 		return;
+ 
+     if (zoom_value == 1 || zoom_value == 2) {
+@@ -992,11 +994,14 @@ noref void(float width, float height, float menushown) CSQC_UpdateView =
+ 		sui_begin(g_width, g_height);
+ 		root_menu([g_width, g_height]);
+ 		sui_end();
++
++		Touch_DrawMenuBack();
+ 	}
+ 	else
+ 	{
+ 		setcursormode(FALSE);
+ 		HUD_DrawElements();
++		Touch_DrawControls();
+ 		Chat_Draw();
+ 		setlocaluserinfo(0, "in_menu", "0");
+ 	}
+@@ -1060,11 +1065,37 @@ void(float scanx, float setval) Input_Movecheck =
      }
  }
  
@@ -27,7 +115,20 @@ index 47aea3b..1184da8 100644
  noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
  {
  	if (evtype == IE_GYROSCOPE || evtype == IE_ACCELEROMETER)
-@@ -1094,6 +1112,7 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
+ 		return FALSE;
+ 
++	// on-screen touch controls (in-game only). when it claims the event we also
++	// flag the input as non-gamepad so the controller path stays out of the way.
++	if (Touch_InputEvent(evtype, scanx, chary, devid)) {
++		last_input_was_gamepad = FALSE;
++		setlocaluserinfo(0, "using_gamepad", "0");
++		return TRUE;
++	}
++
+ 	// Ignore subtle (drift-y) joystick axes
+ 	if (evtype == IE_JOYAXIS && devid > 0)
+ 	{
+@@ -1094,6 +1125,7 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
  	if (last_input_deviceid > 0)
  	{
  		last_input_was_gamepad = TRUE;
@@ -35,7 +136,7 @@ index 47aea3b..1184da8 100644
  		setlocaluserinfo(0, "using_gamepad", "1");
  	}
  	else
-@@ -1104,6 +1123,11 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
+@@ -1104,6 +1136,11 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
  
  	if (current_menu != MENU_NONE)
  	{
@@ -47,8 +148,531 @@ index 47aea3b..1184da8 100644
  		return sui_input_event(evtype, scanx, chary, devid);
  	}
  
+@@ -1191,6 +1228,8 @@ noref float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent
+ 
+ noref void() CSQC_Input_Frame =
+ {
++	Touch_Frame();
++
+ 	input_angles += gun_kick;
+ 	input_angles += sniper_sway;
+ 	input_angles += cam_snap_difference;
+diff --git a/source/client/touch.qc b/source/client/touch.qc
+new file mode 100644
+index 0000000..e932544
+--- /dev/null
++++ b/source/client/touch.qc
+@@ -0,0 +1,484 @@
++/*
++	touch.qc -- on-screen touch controls
++
++	The action-button artwork (gfx/touch/btn_*) is from glKarin's Diii4a /
++	idTech4A++ Android engine (github.com/glKarin/com.n0n3m4.diii4a), GPL-3.0,
++	same license family as this tree. The movement-stick ring/knob are ours.
++
++	Layout: a floating movement stick under the left thumb, look-drag under the
++	right thumb, and a column of action buttons down the right edge. Everything
++	here only runs while actually in a game -- menus and the pause screen are
++	left completely alone, and the controller path is never touched.
++*/
++
++// touch keycodes as the engine reports them to CSQC (keys.h enum; confirmed on-device)
++#define K_TOUCH       600
++#define K_TOUCHSLIDE  601
++#define K_TOUCHTAP    602
++#define K_TOUCHLONG   603
++
++// action buttons -- ADS-fire is the one and only shoot button now
++#define TB_ADSFIRE  0	// hold to aim down sights, then fire (CoD-mobile style)
++#define TB_RELOAD   1
++#define TB_KNIFE    2
++#define TB_GRENADE  3
++#define TB_USE      4
++#define TB_SWAP     5
++#define TB_JUMP     6
++#define TB_SPRINT   7	// hold (impulse 23 start / 24 stop)
++#define TB_CROUCH   8	// stance toggle, or dolphin dive while sprinting
++#define TB_BETTY    9	// prime a Bouncing Betty
++#define TB_NADESWAP 10	// cycle grenade type (frag <-> monkey bomb)
++#define TB_PAUSE    11
++#define TB_COUNT    12
++
++// per-finger roles
++#define TR_NONE  0
++#define TR_MOVE  1
++#define TR_LOOK  2
++#define TR_BTN   3
++
++#define TOUCH_MAXFINGERS 10
++
++float touch_active[TOUCH_MAXFINGERS];
++float touch_role[TOUCH_MAXFINGERS];
++float touch_curx[TOUCH_MAXFINGERS];
++float touch_cury[TOUCH_MAXFINGERS];
++float touch_orgx[TOUCH_MAXFINGERS];	// stick origin, or look last-pos
++float touch_orgy[TOUCH_MAXFINGERS];
++float touch_btn[TOUCH_MAXFINGERS];
++
++// movement + look handed to CSQC_Input_Frame
++float touch_move_on;
++float touch_move_fwd, touch_move_side;
++float touch_look_dyaw, touch_look_dpitch;
++
++// fire / aim resolution
++float touch_ads_was;		// was the ADS-fire button held last frame
++float touch_ads_start;		// cltime the ADS-fire press began (for the aim-then-fire delay)
++float touch_sniper_armed;	// scoped sniper held -- fire on release ("quickscope")
++float touch_sniper_fire_until;	// hold the shot briefly after a sniper release
++
++
++// geometry of action button 'id' -> [centre_x, centre_y, size]
++vector(float id) Touch_BtnGeom =
++{
++	float w = g_width, h = g_height, b = h * 0.13;
++	// combat buttons cluster on the right; movement-ish ones sit by the left thumb,
++	// and the centre stays open for look-drag
++	switch (id) {
++		case TB_ADSFIRE:  return [w * 0.87, h * 0.83, b * 1.35];	// main shoot button
++		case TB_RELOAD:   return [w * 0.75, h * 0.87, b * 0.95];
++		case TB_KNIFE:    return [w * 0.92, h * 0.58, b * 0.90];
++		case TB_USE:      return [w * 0.79, h * 0.58, b * 0.90];
++		case TB_GRENADE:  return [w * 0.92, h * 0.38, b * 0.90];
++		case TB_JUMP:     return [w * 0.79, h * 0.38, b * 0.90];
++		case TB_SWAP:     return [w * 0.92, h * 0.19, b * 0.85];
++		case TB_BETTY:    return [w * 0.79, h * 0.19, b * 0.85];
++		case TB_NADESWAP: return [w * 0.67, h * 0.19, b * 0.75];
++		// left thumb reaches these without leaving the stick
++		case TB_SPRINT:   return [w * 0.29, h * 0.58, b * 0.90];
++		case TB_CROUCH:   return [w * 0.29, h * 0.85, b * 0.90];
++		case TB_PAUSE:    return [w * 0.035, h * 0.11, b * 0.62];
++	}
++	return '0 0 0';
++};
++
++string(float id) Touch_BtnPic =
++{
++	switch (id) {
++		case TB_ADSFIRE:  return "gfx/touch/touch_adsfire";	// aim + fire
++		case TB_RELOAD:   return "gfx/touch/btn_reload";
++		case TB_KNIFE:    return "gfx/touch/touch_knife";
++		case TB_GRENADE:  return "gfx/touch/touch_grenade";
++		case TB_USE:      return "gfx/touch/btn_activate";	// hand = use / buy
++		case TB_SWAP:     return "gfx/touch/touch_swap";
++		case TB_JUMP:     return "gfx/touch/btn_jump";
++		case TB_SPRINT:   return "gfx/touch/btn_kick";		// boot = run
++		case TB_CROUCH:   return "gfx/touch/touch_crouch";
++		case TB_BETTY:    return "gfx/touch/touch_betty";
++		case TB_NADESWAP: return "gfx/touch/touch_nadeswap";
++		case TB_PAUSE:    return "gfx/touch/touch_pause";
++	}
++	return "";
++};
++
++void(float id) Touch_BtnPress =
++{
++	switch (id) {
++		case TB_ADSFIRE:  break;	// shooting is resolved in Touch_Frame
++		case TB_RELOAD:   localcmd("+button5\n");   break;
++		case TB_KNIFE:    localcmd("+button6\n");   break;
++		case TB_GRENADE:  localcmd("+button3\n");   break;
++		case TB_USE:      localcmd("+button7\n");   break;
++		case TB_SWAP:     localcmd("+button4\n");   break;
++		case TB_JUMP:     localcmd("impulse 10\n"); break;
++		case TB_SPRINT:   localcmd("impulse 23\n"); break;	// sprint start
++		case TB_CROUCH:   localcmd("impulse 30\n"); break;	// stance / dolphin dive
++		case TB_BETTY:    localcmd("impulse 33\n"); break;	// prime a Bouncing Betty
++		case TB_NADESWAP: localcmd("impulse 25\n"); break;	// frag <-> monkey bomb
++		case TB_PAUSE:    localcmd("togglemenu\n"); break;
++	}
++};
++
++void(float id) Touch_BtnRelease =
++{
++	switch (id) {
++		case TB_RELOAD:  localcmd("-button5\n");  break;
++		case TB_KNIFE:   localcmd("-button6\n");  break;
++		case TB_GRENADE: localcmd("-button3\n");  break;
++		case TB_USE:     localcmd("-button7\n");  break;
++		case TB_SWAP:    localcmd("-button4\n");  break;
++		case TB_SPRINT:  localcmd("impulse 24\n"); break;	// sprint stop
++		// ADSFIRE / JUMP / CROUCH / BETTY / NADESWAP / PAUSE: one-shot, nothing to release
++	}
++};
++
++// which button (if any) sits under (x, y); -1 for none. hit area padded slightly.
++float(float x, float y) Touch_HitButton =
++{
++	float i;
++	for (i = 0; i < TB_COUNT; i = i + 1) {
++		vector bg = Touch_BtnGeom(i);
++		float hs = bg_z * 0.5 * 1.15;
++		if (x >= bg_x - hs && x <= bg_x + hs && y >= bg_y - hs && y <= bg_y + hs)
++			return i;
++	}
++	return -1;
++};
++
++// is action 'id' currently held by a finger? (for the press highlight)
++float(float id) Touch_BtnHeld =
++{
++	float i;
++	for (i = 0; i < TOUCH_MAXFINGERS; i = i + 1)
++		if (touch_active[i] && touch_role[i] == TR_BTN && touch_btn[i] == id)
++			return TRUE;
++	return FALSE;
++};
++
++void(float devid) Touch_FingerUp =
++{
++	if (!touch_active[devid])
++		return;
++	if (touch_role[devid] == TR_BTN)
++		Touch_BtnRelease(touch_btn[devid]);
++	else if (touch_role[devid] == TR_MOVE) {
++		touch_move_on = FALSE;
++		touch_move_fwd = 0;
++		touch_move_side = 0;
++	}
++	touch_active[devid] = FALSE;
++	touch_role[devid] = TR_NONE;
++};
++
++void(float devid, float x, float y) Touch_FingerMove =
++{
++	touch_curx[devid] = x;
++	touch_cury[devid] = y;
++
++	if (touch_role[devid] == TR_NONE) {
++		// first sample after touch-down decides what this finger is for
++		float bid = Touch_HitButton(x, y);
++		if (bid >= 0) {
++			touch_role[devid] = TR_BTN;
++			touch_btn[devid] = bid;
++			touch_orgx[devid] = x;	// so fire/ads-fire can double as a look pad
++			touch_orgy[devid] = y;
++			Touch_BtnPress(bid);
++			return;
++		} else if (x < g_width * 0.42) {
++			touch_role[devid] = TR_MOVE;
++			touch_move_on = TRUE;
++			// fall through and engage straight away
++		} else {
++			touch_role[devid] = TR_LOOK;
++			touch_orgx[devid] = x;
++			touch_orgy[devid] = y;
++			return;
++		}
++	}
++
++	if (touch_role[devid] == TR_MOVE) {
++		// fixed (locked) stick centred at the bottom-left; the knob clamps to the rim
++		float scx = g_width * 0.15, scy = g_height * 0.74, radius = g_height * 0.16;
++		float dx = x - scx, dy = y - scy;
++		float mag = sqrt(dx * dx + dy * dy);
++		if (mag > radius && mag > 0) { dx = dx * (radius / mag); dy = dy * (radius / mag); }
++		touch_curx[devid] = scx + dx;	// clamped knob position, for drawing
++		touch_cury[devid] = scy + dy;
++		float fspeed = cvar("cl_forwardspeed"); if (fspeed <= 0) fspeed = 400;
++		float sspeed = cvar("cl_sidespeed");    if (sspeed <= 0) sspeed = 400;
++		touch_move_fwd  = (-dy / radius) * fspeed;	// up on screen = forward
++		touch_move_side = ( dx / radius) * sspeed;
++	}
++	else if (touch_role[devid] == TR_LOOK) {
++		float sens = cvar("touch_looksens"); if (sens <= 0) sens = 0.35;
++		float lx = x - touch_orgx[devid];
++		float ly = y - touch_orgy[devid];
++		touch_look_dyaw   = touch_look_dyaw   - lx * sens;	// drag right = look right
++		touch_look_dpitch = touch_look_dpitch + ly * sens;	// drag down = look down (+x=down)
++		touch_orgx[devid] = x;
++		touch_orgy[devid] = y;
++	}
++	else if (touch_role[devid] == TR_BTN) {
++		// the shoot button doubles as a look pad: drag off it to aim while firing
++		if (touch_btn[devid] == TB_ADSFIRE) {
++			float bsens = cvar("touch_looksens"); if (bsens <= 0) bsens = 0.35;
++			touch_look_dyaw   = touch_look_dyaw   - (x - touch_orgx[devid]) * bsens;
++			touch_look_dpitch = touch_look_dpitch + (y - touch_orgy[devid]) * bsens;
++			touch_orgx[devid] = x;
++			touch_orgy[devid] = y;
++		}
++	}
++};
++
++void() CSQC_MenuBack;	// defined further down in main.qc
++
++/*
++	Pause / in-game menu support.
++
++	sui only counts K_MOUSE1 as a click, but a touchscreen reports K_TOUCH, so the
++	menu was unusable: the cursor followed your finger yet nothing could be picked.
++	Translate touch into the mouse events sui already understands. The touch-down
++	arrives *before* the first position sample, so the click is held back until we
++	know where the finger actually landed -- otherwise it would click whatever the
++	cursor happened to be over beforehand.
++*/
++float touch_menu_pending[TOUCH_MAXFINGERS];	// finger down, waiting on a position
++float touch_menu_down[TOUCH_MAXFINGERS];	// we issued a mouse1-down for this finger
++
++// on-screen back button, tucked in the top-left while a menu is open
++vector() Touch_MenuBackGeom =
++{
++	float b = g_height * 0.13;
++	return [g_width * 0.05, g_height * 0.12, b * 0.85];
++};
++
++float(float evtype, float scanx, float chary, float devid) Touch_MenuEvent =
++{
++	if (devid < 0 || devid >= TOUCH_MAXFINGERS)
++		return FALSE;
++
++	if (evtype == IE_KEYDOWN && scanx == K_TOUCH) {
++		touch_menu_pending[devid] = TRUE;
++		return TRUE;
++	}
++
++	if (evtype == IE_KEYUP && scanx == K_TOUCH) {
++		if (touch_menu_down[devid]) {
++			sui_input_event(IE_KEYUP, K_MOUSE1, 0, devid);
++			touch_menu_down[devid] = FALSE;
++		}
++		touch_menu_pending[devid] = FALSE;
++		return TRUE;
++	}
++
++	// swallow the slide/tap/long companions so they don't reach the text input buffer
++	if ((evtype == IE_KEYDOWN || evtype == IE_KEYUP) &&
++	    (scanx == K_TOUCHSLIDE || scanx == K_TOUCHTAP || scanx == K_TOUCHLONG))
++		return TRUE;
++
++	if (evtype == IE_MOUSEABS) {
++		sui_input_event(IE_MOUSEABS, scanx, chary, devid);	// move the cursor first
++		if (touch_menu_pending[devid]) {
++			touch_menu_pending[devid] = FALSE;
++
++			vector bb = Touch_MenuBackGeom();
++			float hs = bb_z * 0.5 * 1.2;
++			if (scanx >= bb_x - hs && scanx <= bb_x + hs &&
++			    chary >= bb_y - hs && chary <= bb_y + hs) {
++				CSQC_MenuBack();
++				return TRUE;
++			}
++
++			sui_input_event(IE_KEYDOWN, K_MOUSE1, 0, devid);
++			touch_menu_down[devid] = TRUE;
++		}
++		return TRUE;
++	}
++
++	return FALSE;	// leave keyboard/controller events to the normal menu path
++};
++
++void() Touch_DrawMenuBack =
++{
++	if (last_input_was_gamepad)
++		return;
++	vector bb = Touch_MenuBackGeom();
++	drawpic([bb_x - bb_z * 0.5, bb_y - bb_z * 0.5, 0], "gfx/touch/touch_back", [bb_z, bb_z], [1, 1, 1], 0.55);
++};
++
++// returns TRUE when it handled (and so consumes) the event
++float(float evtype, float scanx, float chary, float devid) Touch_InputEvent =
++{
++	if (current_menu != MENU_NONE)
++		return Touch_MenuEvent(evtype, scanx, chary, devid);
++	if (devid < 0 || devid >= TOUCH_MAXFINGERS)
++		return FALSE;
++
++	if (evtype == IE_KEYDOWN && scanx == K_TOUCH) {
++		touch_active[devid] = TRUE;
++		touch_role[devid] = TR_NONE;	// assigned on the first position sample
++		return TRUE;
++	}
++	if (evtype == IE_KEYUP && scanx == K_TOUCH) {
++		Touch_FingerUp(devid);
++		return TRUE;
++	}
++	if ((evtype == IE_KEYDOWN || evtype == IE_KEYUP) &&
++	    (scanx == K_TOUCHSLIDE || scanx == K_TOUCHTAP || scanx == K_TOUCHLONG))
++		return TRUE;	// swallow the slide/tap companions
++
++	if (evtype == IE_MOUSEABS) {
++		// only track fingers that are genuinely down. the engine emits a trailing
++		// position sample *after* the touch-up; honouring that would re-engage a
++		// finger that was just released (stuck stick / look).
++		if (touch_active[devid])
++			Touch_FingerMove(devid, scanx, chary);
++		return TRUE;
++	}
++	if (evtype == IE_MOUSEDELTA)
++		return TRUE;
++
++	return FALSE;
++};
++
++// scoped bolt-action snipers -- aim, then fire on release, and never fire mid-scope
++float(float wep) Touch_IsSniper =
++{
++	float base = EqualNonPapWeapon(wep);
++	return (base == W_KAR_SCOPE || base == W_PTRS || wep == W_HEADCRACKER);
++};
++
++// fold movement + look into this frame's command. called first in CSQC_Input_Frame
++// so weapon kick/sway still layer on top. left untouched while a controller is in use.
++void() Touch_Frame =
++{
++	if (last_input_was_gamepad)
++		return;	// controller owns input -- stay completely out of the way
++
++	// guard against a dropped touch-up leaving the player walking by itself
++	float fi, moving = FALSE;
++	for (fi = 0; fi < TOUCH_MAXFINGERS; fi = fi + 1)
++		if (touch_active[fi] && touch_role[fi] == TR_MOVE) { moving = TRUE; break; }
++	if (!moving) { touch_move_on = FALSE; touch_move_fwd = 0; touch_move_side = 0; }
++
++	// --- shooting: the ADS-fire button is the only shoot button now ---
++	float bi, adsfire_held = FALSE;
++	for (bi = 0; bi < TOUCH_MAXFINGERS; bi = bi + 1)
++		if (touch_active[bi] && touch_role[bi] == TR_BTN && touch_btn[bi] == TB_ADSFIRE)
++			adsfire_held = TRUE;
++
++	if (adsfire_held && !touch_ads_was)
++		touch_ads_start = cltime;
++
++	float wz = getstatf(STAT_WEAPONZOOM);	// 0 = hip, 1 = ADS, 2 = scoped sniper
++	float actwep = getstatf(STAT_ACTIVEWEAPON);
++	float firetype = GetFiretype(EqualNonPapWeapon(actwep));
++
++	// fire behaviour by weapon:
++	//   release-fire (aim, shoot on let-go): scoped snipers + rocket launchers
++	//   hold (continuous):                   full-autos, tesla, flamethrower
++	//   tap  (one shot per deliberate press): semi, grenade, blade, ray, everything else
++	float is_release = Touch_IsSniper(actwep) || firetype == FIRETYPE_ROCKET;
++	float is_hold    = (firetype == FIRETYPE_FULLAUTO || firetype == FIRETYPE_TESLA || firetype == FIRETYPE_FLAME);
++
++	// weapons with sights wait a beat so they don't fire mid-raise; weapons without
++	// (tesla, ray, ballistic knife, flamethrower...) fire the instant you press
++	float weapon_adses = (firetype == FIRETYPE_SEMIAUTO || firetype == FIRETYPE_FULLAUTO || is_release);
++	float settle = weapon_adses ? 0.12 : 0;
++	float fire_ok = adsfire_held && (cltime - touch_ads_start) >= settle;
++
++	if (adsfire_held)
++		input_buttons = input_buttons | 128;	// hold ADS (a no-op for non-sighted weapons)
++
++	if (is_release) {
++		if (adsfire_held)
++			touch_sniper_armed = TRUE;	// never fire while held -- wait for the release
++	} else if (fire_ok) {
++		if (is_hold) {
++			input_buttons = input_buttons | 1;	// continuous
++		} else {
++			// semi / grenade / blade / ray: tap at a deliberate rate, not machine-gun fast
++			float ph = cltime - floor(cltime / 0.25) * 0.25;
++			if (ph < 0.05)
++				input_buttons = input_buttons | 1;
++		}
++	}
++
++	// release shot for snipers + rockets ("aim, then let go"); a quick tap fires from the hip
++	if (touch_ads_was && !adsfire_held && touch_sniper_armed) {
++		touch_sniper_fire_until = cltime + 0.10;
++		touch_sniper_armed = FALSE;
++	}
++	if (cltime < touch_sniper_fire_until)
++		input_buttons = input_buttons | 129;	// attack (1) + ADS (128) so the shot lands true
++
++	touch_ads_was = adsfire_held;
++
++	// look: rotate the *actual* client viewangles (the camera). modifying only
++	// input_angles turns the outgoing command but leaves the camera frozen, which
++	// also makes movement run relative to a different angle than you can see.
++	// sensitivity drops while aiming, and drops further through a sniper scope.
++	if (touch_look_dyaw || touch_look_dpitch) {
++		float lookmul = 1;
++		if (wz == 1)      lookmul = 0.55;	// ADS
++		else if (wz == 2) lookmul = 0.35;	// scoped sniper
++		if (getstatf(STAT_FACINGENEMY))		// aim-assist slowdown when on a target
++			lookmul = lookmul * 0.5;
++		vector va = getproperty(VF_CL_VIEWANGLES);
++		va_y = va_y + touch_look_dyaw * lookmul;
++		va_x = va_x + touch_look_dpitch * lookmul;
++		if (va_x >  89) va_x =  89;
++		if (va_x < -89) va_x = -89;
++		setproperty(VF_CL_VIEWANGLES, va);
++		input_angles_x = va_x;	// keep this frame's command in step with the view
++		input_angles_y = va_y;
++		touch_look_dyaw = 0;
++		touch_look_dpitch = 0;
++	}
++
++	// movement
++	if (touch_move_on) {
++		input_movevalues_x = input_movevalues_x + touch_move_fwd;
++		input_movevalues_y = input_movevalues_y + touch_move_side;
++	}
++};
++
++void() Touch_DrawStick =
++{
++	float i, finger = -1;
++	for (i = 0; i < TOUCH_MAXFINGERS; i = i + 1)
++		if (touch_active[i] && touch_role[i] == TR_MOVE) { finger = i; break; }
++
++	// fixed (locked) base bottom-left; knob rests at centre, rides the rim while held
++	float scx = g_width * 0.15, scy = g_height * 0.74;
++	float base = g_height * 0.34, knob = g_height * 0.15;
++	float kx = scx, ky = scy, ba = 0.16, ka = 0.22;
++	if (finger >= 0) {
++		kx = touch_curx[finger];
++		ky = touch_cury[finger];
++		ba = 0.30;
++		ka = 0.45;
++	}
++	drawpic([scx - base * 0.5, scy - base * 0.5, 0], "gfx/touch/stick_base", [base, base], [1, 1, 1], ba);
++	drawpic([kx - knob * 0.5, ky - knob * 0.5, 0], "gfx/touch/stick_knob", [knob, knob], [1, 1, 1], ka);
++};
++
++void() Touch_DrawControls =
++{
++	if (current_menu != MENU_NONE)
++		return;
++	if (last_input_was_gamepad)	// controller in use -- hide the on-screen pad
++		return;
++
++	Touch_DrawStick();
++
++	float i;
++	for (i = 0; i < TB_COUNT; i = i + 1) {
++		vector bg = Touch_BtnGeom(i);
++		float lit = Touch_BtnHeld(i);
++		drawpic([bg_x - bg_z * 0.5, bg_y - bg_z * 0.5, 0], Touch_BtnPic(i), [bg_z, bg_z], [1, 1, 1], lit ? 0.75 : 0.40);
++	}
++};
+diff --git a/source/menu/defs/menu_defs.qc b/source/menu/defs/menu_defs.qc
+index 23c18c9..9454285 100644
+--- a/source/menu/defs/menu_defs.qc
++++ b/source/menu/defs/menu_defs.qc
+@@ -61,7 +61,8 @@ enum {
+     MENU_CREDITS,
+     MENU_PAUSE,
+     MENU_LOBBY,
+-    MENU_GAMESETTINGS
++    MENU_GAMESETTINGS,
++    MENU_VIDEOADV
+ };
+ 
+ #define MENU_SND_NAVIGATE 	0
+@@ -99,6 +100,9 @@ void() Menu_Control;
+ void() Menu_Gamepad;
+ void() Menu_Bindings;
+ void() Menu_Accessibility;
++void() Menu_Video_Adv;
++string(string prev_id) Menu_VideoAdv_GetNextButton;
++string(string next_id) Menu_VideoAdv_GetPreviousButton;
+ 
+ #ifdef MENU
+ 
 diff --git a/source/menu/m_menu.qc b/source/menu/m_menu.qc
-index 91dc9fc..c667570 100644
+index 91dc9fc..d30989f 100644
 --- a/source/menu/m_menu.qc
 +++ b/source/menu/m_menu.qc
 @@ -806,6 +806,18 @@ void(string id, vector pos, vector size, __inout vector scrollofs, float num_ser
@@ -70,11 +694,19 @@ index 91dc9fc..c667570 100644
  	sui_list_view_begin(strcat(id, "scrl"), pos, size, rowsize, num_servers, scrollofs, [0, 16]);
  	for (float index = sui_list_item(listitem_pos); index > -1; index = sui_list_item(listitem_pos))
  	{
+@@ -1032,6 +1044,7 @@ void(vector size) root_menu =
+ 
+ 		case MENU_OPTIONS: Menu_Options(); break;
+ 		case MENU_VIDEO: Menu_Video(); break;
++		case MENU_VIDEOADV: Menu_Video_Adv(); break;
+ 		case MENU_AUDIO: Menu_Audio(); break;
+ 		case MENU_CONTROL: Menu_Control(); break;
+ 		case MENU_GAMEPAD: Menu_Gamepad(); break;
 diff --git a/source/menu/main.qc b/source/menu/main.qc
-index e9c007e..1c44344 100644
+index 4b51587..c5c1de9 100644
 --- a/source/menu/main.qc
 +++ b/source/menu/main.qc
-@@ -300,6 +300,27 @@ void(float wantmode) m_toggle =
+@@ -307,6 +307,27 @@ void(float wantmode) m_toggle =
  	}
  };
  
@@ -102,7 +734,7 @@ index e9c007e..1c44344 100644
  float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
  {
  	last_input_deviceid = devid;
-@@ -325,8 +346,15 @@ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
+@@ -332,8 +353,15 @@ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
  		return TRUE;
  	}
  
@@ -181,6 +813,182 @@ index def4893..aa104b9 100644
  PREVBUTTON_FUNC(Menu_Coop_Direct, menu_coop_direct_buttons)
  PREVBUTTON_FUNC(Menu_Coop_Join, menu_coop_join_buttons)
  PREVBUTTON_FUNC(Menu_Coop_Create, menu_coop_create_buttons)
+diff --git a/source/menu/menu_opts.qc b/source/menu/menu_opts.qc
+index d3513d5..3db183b 100644
+--- a/source/menu/menu_opts.qc
++++ b/source/menu/menu_opts.qc
+@@ -1,4 +1,4 @@
+-string menu_opts_buttons[6] = {"om_video", "om_audio", "om_binds", "om_acces", "om_console", "om_back"};
++string menu_opts_buttons[7] = {"om_video", "om_audio", "om_binds", "om_acces", "om_vadv", "om_console", "om_back"};
+ 
+ string(string prev_id) Menu_Options_GetNextButton =
+ {
+@@ -49,8 +49,9 @@ void() Menu_Options =
+     Menu_Button(2, "om_audio", "AUDIO", "Volume sliders.") ? current_menu = MENU_AUDIO : 0;
+     Menu_Button(3, "om_binds", "CONTROLS", "Control Options and Bindings.") ? current_menu = MENU_CONTROL : 0;
+     Menu_Button(4, "om_acces", "ACCESSIBILITY", "Content, Interface, and Readability options.") ? current_menu = MENU_ACCESSIBILITY : 0;
+-    Menu_DrawDivider(5);
+-    Menu_Button(5.25, "om_console", "OPEN CONSOLE", "Access the Developer Console.") ? localcmd("toggleconsole\n") : 0;
++    Menu_Button(5, "om_vadv", "ADVANCED VIDEO", "Render scale, lighting, and effect toggles.") ? current_menu = MENU_VIDEOADV : 0;
++    Menu_DrawDivider(6);
++    Menu_Button(6.25, "om_console", "OPEN CONSOLE", "Access the Developer Console.") ? localcmd("toggleconsole\n") : 0;
+ 
+ #ifdef MENU
+ 
+diff --git a/source/menu/menu_vadv.qc b/source/menu/menu_vadv.qc
+new file mode 100644
+index 0000000..c7fe497
+--- /dev/null
++++ b/source/menu/menu_vadv.qc
+@@ -0,0 +1,148 @@
++/*
++	menu_vadv.qc -- advanced video options
++
++	The main video menu is full (its rows are laid out at fixed 25px steps with no
++	scrolling), so the heavier graphics knobs live here. These matter most on phones,
++	where render scale and the effect toggles are the difference between 30 and 60fps.
++*/
++
++string menu_vadv_buttons[9] = {"va_scale", "va_aniso", "va_dynlt", "va_bloom",
++                               "va_fsky", "va_vmodel", "va_bob", "va_brite", "va_back"};
++
++float menu_vadv_init;
++
++float current_va_dynlt;
++float current_va_bloom;
++float current_va_fsky;
++float current_va_vmodel;
++float current_va_bob;
++
++void() Menu_VideoAdv_Init =
++{
++	current_va_dynlt  = cvar("r_dynamic") != 0;
++	current_va_bloom  = cvar("r_bloom") != 0;
++	current_va_fsky   = cvar("r_fastsky") != 0;
++	current_va_vmodel = cvar("r_drawviewmodel") != 0;
++	current_va_bob    = cvar("cl_bob") != 0;
++
++	menu_vadv_init = true;
++};
++
++void() Menu_VideoAdv_ToggleDynamic =
++{
++	current_va_dynlt = !current_va_dynlt;
++	cvar_set("r_dynamic", current_va_dynlt ? "1" : "0");
++};
++
++void() Menu_VideoAdv_ToggleBloom =
++{
++	current_va_bloom = !current_va_bloom;
++	cvar_set("r_bloom", current_va_bloom ? "1" : "0");
++};
++
++void() Menu_VideoAdv_ToggleFastSky =
++{
++	current_va_fsky = !current_va_fsky;
++	cvar_set("r_fastsky", current_va_fsky ? "1" : "0");
++};
++
++void() Menu_VideoAdv_ToggleViewmodel =
++{
++	current_va_vmodel = !current_va_vmodel;
++	cvar_set("r_drawviewmodel", current_va_vmodel ? "1" : "0");
++};
++
++void() Menu_VideoAdv_ToggleBob =
++{
++	current_va_bob = !current_va_bob;
++	cvar_set("cl_bob", current_va_bob ? "0.02" : "0");
++};
++
++string(string prev_id) Menu_VideoAdv_GetNextButton =
++{
++	if (prev_id == "")
++		return menu_vadv_buttons[0];
++
++	string ret = menu_vadv_buttons[0];
++
++	for (float i = 0; i < menu_vadv_buttons.length; i++) {
++		if (menu_vadv_buttons[i] == prev_id) {
++			if (i + 1 >= menu_vadv_buttons.length)
++				break;
++
++			ret = menu_vadv_buttons[i + 1];
++			break;
++		}
++	}
++
++	return ret;
++};
++
++string(string next_id) Menu_VideoAdv_GetPreviousButton =
++{
++	if (next_id == "")
++		return menu_vadv_buttons[menu_vadv_buttons.length - 1];
++
++	string ret = menu_vadv_buttons[menu_vadv_buttons.length - 1];
++
++	for (float i = menu_vadv_buttons.length - 1; i > 0; i--) {
++		if (menu_vadv_buttons[i] == next_id) {
++			if (i - 1 < 0)
++				break;
++
++			ret = menu_vadv_buttons[i - 1];
++			break;
++		}
++	}
++
++	return ret;
++};
++
++void() Menu_Video_Adv =
++{
++	if (!menu_vadv_init)
++		Menu_VideoAdv_Init();
++
++	Menu_DrawBackground();
++	Menu_DrawTitle("ADVANCED VIDEO");
++
++	Menu_DrawMapPanel();
++
++	// Render Scale -- renders below native and upscales. The single biggest
++	// performance lever on a phone.
++	Menu_Button(1, "va_scale", "RENDER SCALE", "Render below display resolution for more performance.") ? 0 : 0;
++	Menu_CvarSlider(1, "va_scale", [0.5, 2, 15], "r_renderscale", false, false, false);
++
++	// Anisotropic Filtering
++	Menu_Button(2, "va_aniso", "ANISOTROPIC", "Sharpen textures viewed at an angle.") ? 0 : 0;
++	Menu_CvarSlider(2, "va_aniso", [1, 16, 15], "gl_texture_anisotropic_filtering", true, false, false);
++
++	// Dynamic Lights
++	Menu_Button(3, "va_dynlt", "DYNAMIC LIGHTS", "Muzzle flashes and explosions light the world.") ? Menu_VideoAdv_ToggleDynamic() : 0;
++	Menu_DrawOptionValue(3, current_va_dynlt ? "ENABLED" : "DISABLED");
++
++	// Bloom
++	Menu_Button(4, "va_bloom", "BLOOM", "Glow around bright areas.") ? Menu_VideoAdv_ToggleBloom() : 0;
++	Menu_DrawOptionValue(4, current_va_bloom ? "ENABLED" : "DISABLED");
++
++	// Fast Sky
++	Menu_Button(5, "va_fsky", "FAST SKY", "Draw a flat sky instead of a skybox.") ? Menu_VideoAdv_ToggleFastSky() : 0;
++	Menu_DrawOptionValue(5, current_va_fsky ? "ENABLED" : "DISABLED");
++
++	// Viewmodel
++	Menu_Button(6, "va_vmodel", "VIEW MODEL", "Show the weapon in first person.") ? Menu_VideoAdv_ToggleViewmodel() : 0;
++	Menu_DrawOptionValue(6, current_va_vmodel ? "ENABLED" : "DISABLED");
++
++	// View Bob
++	Menu_Button(7, "va_bob", "VIEW BOB", "Bob the camera while walking.") ? Menu_VideoAdv_ToggleBob() : 0;
++	Menu_DrawOptionValue(7, current_va_bob ? "ENABLED" : "DISABLED");
++
++	// Brightness
++	Menu_Button(8, "va_brite", "BRIGHTNESS", "Lift the whole image -- helps in daylight.") ? 0 : 0;
++	Menu_CvarSlider(8, "va_brite", [0, 0.5, 10], "v_brightness", false, false, false);
++
++	Menu_DrawDivider(9.25);
++	Menu_Button(-1, "va_back", "BACK", "Return to Configuration Menu.") ? current_menu = MENU_OPTIONS : 0;
++
++	sui_pop_frame();
++};
 diff --git a/source/menu/menu_vide.qc b/source/menu/menu_vide.qc
 index add610e..491ede3 100644
 --- a/source/menu/menu_vide.qc
@@ -236,10 +1044,30 @@ index add610e..491ede3 100644
      Menu_Button(-2, "vm_apply", "APPLY", "Save & Apply Settings.") ? Menu_Video_ApplySettings() : 0;
      Menu_Button(-1, "vm_back", "BACK", "Return to Configuration Menu.") ? current_menu = MENU_OPTIONS : 0;
 diff --git a/source/menu/sui_sys.qc b/source/menu/sui_sys.qc
-index 6be6baf..1c9b92b 100644
+index 6be6baf..77fd4a6 100644
 --- a/source/menu/sui_sys.qc
 +++ b/source/menu/sui_sys.qc
-@@ -871,12 +871,12 @@ float(float evtype, float scanx, float chary, float devid) sui_input_event =
+@@ -469,6 +469,9 @@ void() _sui_menukey_downarrow =
+ 		case MENU_VIDEO:
+ 			_hover_actions[0] = Menu_Video_GetNextButton(current_hovered_option);
+ 			break;
++		case MENU_VIDEOADV:
++			_hover_actions[0] = Menu_VideoAdv_GetNextButton(current_hovered_option);
++			break;
+ 		case MENU_AUDIO:
+ 			_hover_actions[0] = Menu_Audio_GetNextButton(current_hovered_option);
+ 			break;
+@@ -547,6 +550,9 @@ void() _sui_menukey_uparrow =
+ 		case MENU_VIDEO:
+ 			_hover_actions[0] = Menu_Video_GetPreviousButton(current_hovered_option);
+ 			break;
++		case MENU_VIDEOADV:
++			_hover_actions[0] = Menu_VideoAdv_GetPreviousButton(current_hovered_option);
++			break;
+ 		case MENU_AUDIO:
+ 			_hover_actions[0] = Menu_Audio_GetPreviousButton(current_hovered_option);
+ 			break;
+@@ -871,12 +877,12 @@ float(float evtype, float scanx, float chary, float devid) sui_input_event =
  			_sui_mouse1_down();
  			return TRUE;
  		}
@@ -254,7 +1082,7 @@ index 6be6baf..1c9b92b 100644
  		{
  			_sui_menukey_uparrow();
  			return TRUE;
-@@ -886,12 +886,12 @@ float(float evtype, float scanx, float chary, float devid) sui_input_event =
+@@ -886,12 +892,12 @@ float(float evtype, float scanx, float chary, float devid) sui_input_event =
  			_sui_menukey_enter();
  			return TRUE;
  		}
@@ -269,7 +1097,7 @@ index 6be6baf..1c9b92b 100644
  		{
  			_sui_menukey_rightarrow();
  			return TRUE;
-@@ -939,7 +939,7 @@ void(float width, float height) sui_begin =
+@@ -939,7 +945,7 @@ void(float width, float height) sui_begin =
  {
  	_action_elements_index = 0;
  	_sui_draw_initialized = TRUE;
