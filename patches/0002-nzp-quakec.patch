@@ -837,10 +837,10 @@ index d3513d5..3db183b 100644
  
 diff --git a/source/menu/menu_vadv.qc b/source/menu/menu_vadv.qc
 new file mode 100644
-index 0000000..00a3ab3
+index 0000000..2f96239
 --- /dev/null
 +++ b/source/menu/menu_vadv.qc
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,258 @@
 +/*
 +	menu_vadv.qc -- advanced video options
 +
@@ -857,12 +857,13 @@ index 0000000..00a3ab3
 +	still carry their light entities, and ndu has a sun and ten spotlights among them.
 +*/
 +
-+string menu_vadv_buttons[10] = {"va_hiend", "va_scale", "va_aniso", "va_dynlt", "va_bloom",
-+                                "va_fsky", "va_vmodel", "va_bob", "va_brite", "va_back"};
++string menu_vadv_buttons[11] = {"va_hiend", "va_rtx", "va_scale", "va_aniso", "va_dynlt",
++                                "va_bloom", "va_fsky", "va_vmodel", "va_bob", "va_brite", "va_back"};
 +
 +float menu_vadv_init;
 +
 +float current_va_hiend;
++float current_va_rtx;
 +float current_va_dynlt;
 +float current_va_bloom;
 +float current_va_fsky;
@@ -872,6 +873,7 @@ index 0000000..00a3ab3
 +void() Menu_VideoAdv_Init =
 +{
 +	current_va_hiend  = cvar("r_shadow_realtime_world") != 0;
++	current_va_rtx    = cvar("r_shadow_raytrace") != 0;
 +	current_va_dynlt  = cvar("r_dynamic") != 0;
 +	current_va_bloom  = cvar("r_bloom") != 0;
 +	current_va_fsky   = cvar("r_fastsky") != 0;
@@ -916,7 +918,44 @@ index 0000000..00a3ab3
 +		cvar_set("r_shadow_realtime_world_lightmaps", "0");
 +		cvar_set("gl_specular", "0.3");			// engine default
 +		cvar_set("r_glsl_offsetmapping", "0");
++
++		// raytraced shadows only trace against realtime lights, so there is
++		// nothing left for them to do
++		cvar_set("r_shadow_raytrace", "0");
++		current_va_rtx = FALSE;
 +	}
++};
++
++//
++// Menu_VideoAdv_VulkanActive()
++// Hardware raytracing rides on VK_KHR_ray_query, so it is Vulkan-only. The GL
++// path has no equivalent and the option is hidden there rather than lying.
++//
++float() Menu_VideoAdv_VulkanActive =
++{
++	string r = cvar_string("vid_renderer");
++	return (r != "gl" && r != "egl");
++};
++
++//
++// Menu_VideoAdv_ToggleRaytrace()
++// Traces shadow rays on the GPU instead of rasterising shadow maps. The engine
++// checks for VK_KHR_ray_query at startup and quietly ignores this if the device
++// cannot do it, so switching it on is safe even where it will not apply.
++//
++void() Menu_VideoAdv_ToggleRaytrace =
++{
++	current_va_rtx = !current_va_rtx;
++	cvar_set("r_shadow_raytrace", current_va_rtx ? "1" : "0");
++};
++
++//
++// Menu_VideoAdv_RaytraceReady()
++// Whether the raytracing row is selectable at all.
++//
++float() Menu_VideoAdv_RaytraceReady =
++{
++	return Menu_VideoAdv_VulkanActive() && current_va_hiend;
 +};
 +
 +void() Menu_VideoAdv_ToggleDynamic =
@@ -966,6 +1005,10 @@ index 0000000..00a3ab3
 +		}
 +	}
 +
++	// step over the raytracing row while it is greyed out
++	if (ret == "va_rtx" && !Menu_VideoAdv_RaytraceReady())
++		ret = "va_scale";
++
 +	return ret;
 +};
 +
@@ -986,6 +1029,10 @@ index 0000000..00a3ab3
 +		}
 +	}
 +
++	// step over the raytracing row while it is greyed out
++	if (ret == "va_rtx" && !Menu_VideoAdv_RaytraceReady())
++		ret = "va_hiend";
++
 +	return ret;
 +};
 +
@@ -1003,40 +1050,51 @@ index 0000000..00a3ab3
 +	Menu_Button(1, "va_hiend", "HIGH-END LIGHTING", "Light the world in realtime with proper shadows. Costly.") ? Menu_VideoAdv_ToggleHighEnd() : 0;
 +	Menu_DrawOptionValue(1, current_va_hiend ? "ENABLED" : "DISABLED");
 +
++	// Raytraced shadows -- rides on the lighting above, since rays are traced
++	// against realtime lights and there is nothing to trace without them
++	if (!Menu_VideoAdv_VulkanActive())
++		Menu_GreyButton(2, "[VULKAN ONLY] RAYTRACED SHADOWS");
++	else if (!current_va_hiend)
++		Menu_GreyButton(2, "[NEEDS LIGHTING] RAYTRACED SHADOWS");
++	else {
++		Menu_Button(2, "va_rtx", "RAYTRACED SHADOWS", "Trace shadow rays on the GPU. Needs hardware raytracing support.") ? Menu_VideoAdv_ToggleRaytrace() : 0;
++		Menu_DrawOptionValue(2, current_va_rtx ? "ENABLED" : "DISABLED");
++	}
++
 +	// Render Scale -- renders below native and upscales. The single biggest
 +	// performance lever on a phone.
-+	Menu_Button(2, "va_scale", "RENDER SCALE", "Below 1 is faster; above 1 supersamples for a sharper image.") ? 0 : 0;
-+	Menu_CvarSlider(2, "va_scale", [0.5, 2, 15], "r_renderscale", false, false, false);
++	Menu_Button(3, "va_scale", "RENDER SCALE", "Below 1 is faster; above 1 supersamples for a sharper image.") ? 0 : 0;
++	Menu_CvarSlider(3, "va_scale", [0.5, 2, 15], "r_renderscale", false, false, false);
 +
 +	// Anisotropic Filtering
-+	Menu_Button(3, "va_aniso", "ANISOTROPIC", "Sharpen textures viewed at an angle.") ? 0 : 0;
-+	Menu_CvarSlider(3, "va_aniso", [1, 16, 15], "gl_texture_anisotropic_filtering", true, false, false);
++	Menu_Button(4, "va_aniso", "ANISOTROPIC", "Sharpen textures viewed at an angle.") ? 0 : 0;
++	Menu_CvarSlider(4, "va_aniso", [1, 16, 15], "gl_texture_anisotropic_filtering", true, false, false);
 +
 +	// Dynamic Lights
-+	Menu_Button(4, "va_dynlt", "DYNAMIC LIGHTS", "Muzzle flashes and explosions light the world.") ? Menu_VideoAdv_ToggleDynamic() : 0;
-+	Menu_DrawOptionValue(4, current_va_dynlt ? "ENABLED" : "DISABLED");
++	Menu_Button(5, "va_dynlt", "DYNAMIC LIGHTS", "Muzzle flashes and explosions light the world.") ? Menu_VideoAdv_ToggleDynamic() : 0;
++	Menu_DrawOptionValue(5, current_va_dynlt ? "ENABLED" : "DISABLED");
 +
 +	// Bloom
-+	Menu_Button(5, "va_bloom", "BLOOM", "Glow around bright areas.") ? Menu_VideoAdv_ToggleBloom() : 0;
-+	Menu_DrawOptionValue(5, current_va_bloom ? "ENABLED" : "DISABLED");
++	Menu_Button(6, "va_bloom", "BLOOM", "Glow around bright areas.") ? Menu_VideoAdv_ToggleBloom() : 0;
++	Menu_DrawOptionValue(6, current_va_bloom ? "ENABLED" : "DISABLED");
 +
 +	// Fast Sky
-+	Menu_Button(6, "va_fsky", "FAST SKY", "Draw a flat sky instead of a skybox.") ? Menu_VideoAdv_ToggleFastSky() : 0;
-+	Menu_DrawOptionValue(6, current_va_fsky ? "ENABLED" : "DISABLED");
++	Menu_Button(7, "va_fsky", "FAST SKY", "Draw a flat sky instead of a skybox.") ? Menu_VideoAdv_ToggleFastSky() : 0;
++	Menu_DrawOptionValue(7, current_va_fsky ? "ENABLED" : "DISABLED");
 +
 +	// Viewmodel
-+	Menu_Button(7, "va_vmodel", "VIEW MODEL", "Show the weapon in first person.") ? Menu_VideoAdv_ToggleViewmodel() : 0;
-+	Menu_DrawOptionValue(7, current_va_vmodel ? "ENABLED" : "DISABLED");
++	Menu_Button(8, "va_vmodel", "VIEW MODEL", "Show the weapon in first person.") ? Menu_VideoAdv_ToggleViewmodel() : 0;
++	Menu_DrawOptionValue(8, current_va_vmodel ? "ENABLED" : "DISABLED");
 +
 +	// View Bob
-+	Menu_Button(8, "va_bob", "VIEW BOB", "Bob the camera while walking.") ? Menu_VideoAdv_ToggleBob() : 0;
-+	Menu_DrawOptionValue(8, current_va_bob ? "ENABLED" : "DISABLED");
++	Menu_Button(9, "va_bob", "VIEW BOB", "Bob the camera while walking.") ? Menu_VideoAdv_ToggleBob() : 0;
++	Menu_DrawOptionValue(9, current_va_bob ? "ENABLED" : "DISABLED");
 +
 +	// Brightness
-+	Menu_Button(9, "va_brite", "BRIGHTNESS", "Lift the whole image -- helps in daylight.") ? 0 : 0;
-+	Menu_CvarSlider(9, "va_brite", [0, 0.5, 10], "brightness", false, false, false);
++	Menu_Button(10, "va_brite", "BRIGHTNESS", "Lift the whole image -- helps in daylight.") ? 0 : 0;
++	Menu_CvarSlider(10, "va_brite", [0, 0.5, 10], "brightness", false, false, false);
 +
-+	Menu_DrawDivider(10.25);
++	Menu_DrawDivider(11.25);
 +	Menu_Button(-1, "va_back", "BACK", "Return to Configuration Menu.") ? current_menu = MENU_OPTIONS : 0;
 +
 +	sui_pop_frame();
