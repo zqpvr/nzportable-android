@@ -111,7 +111,10 @@ android {
             // minify must stay off: R8 would strip the JNI-registered native methods
             // (FTENativeActivity / FTEDroidEngine) since nothing calls them from Java.
             minifyEnabled false
-            ndk { debugSymbolLevel 'none' }   // strip native debug symbols -> smaller .so in the APK
+            // The .so shipped in the APK stays stripped, but keep a symbol table
+            // alongside the build so a crash address can be turned back into a
+            // function name. Without it a native tombstone is just offsets.
+            ndk { debugSymbolLevel 'symbol_table' }
             signingConfig System.getenv('KEYSTORE_FILE') != null ? signingConfigs.release : signingConfigs.debug
         }
     }

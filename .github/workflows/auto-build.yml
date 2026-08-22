@@ -103,6 +103,29 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --no-daemon --console=plain
 
+      - name: Keep the unstripped library for symbolising crashes
+        # The APK ships a stripped .so, so a native tombstone arrives as bare
+        # offsets. Retaining the unstripped build output means any crash report
+        # from a published APK can be resolved back to real function names --
+        # match them up by the GNU build ID.
+        run: |
+          UNSTRIPPED=$(find app/build/intermediates/cxx -name libftedroid.so -path '*arm64-v8a*' | head -1)
+          if [ -n "$UNSTRIPPED" ]; then
+            mkdir -p symbols
+            cp "$UNSTRIPPED" symbols/
+            echo "build-id: $(readelf -n "$UNSTRIPPED" | awk '/Build ID/{print $3}')" > symbols/BUILDID.txt
+          else
+            echo "::warning::no unstripped libftedroid.so found; crashes from this build cannot be symbolised"
+          fi
+
+      - name: Upload symbols
+        if: hashFiles('symbols/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: symbols-${{ github.run_number }}
+          path: symbols/
+          retention-days: 90
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
