@@ -108,9 +108,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           DATE=$(date +%Y%m%d)
-          TAG="auto-$DATE-${{ github.run_number }}"
+          RUN=${{ github.run_number }}
           DATAVER=$(cat app/src/main/assets/nzp/version.txt 2>/dev/null || echo unknown)
-          mv app/build/outputs/apk/release/app-release.apk "nzportable-android-$TAG.apk"
-          gh release create "$TAG" "nzportable-android-$TAG.apk" \
-            --title "Auto build $DATE" \
+
+          # The tag keeps a prefix so it reads as one and still sorts by date.
+          # The APK name is decoupled from it: what someone sees in their
+          # downloads folder should say when it was built, not how it was
+          # triggered, so the date and build number carry it on their own.
+          TAG="build-$DATE-$RUN"
+          APK="nzportable-android-$DATE-$RUN.apk"
+
+          mv app/build/outputs/apk/release/app-release.apk "$APK"
+          gh release create "$TAG" "$APK" \
+            --title "Build $DATE" \
             --notes "Automated build against the latest NZ:P (data $DATAVER)."
