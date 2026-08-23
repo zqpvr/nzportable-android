@@ -159,10 +159,10 @@ index 47aea3b..de2d714 100644
  	input_angles += cam_snap_difference;
 diff --git a/source/client/touch.qc b/source/client/touch.qc
 new file mode 100644
-index 0000000..5b29fc2
+index 0000000..bd753b2
 --- /dev/null
 +++ b/source/client/touch.qc
-@@ -0,0 +1,555 @@
+@@ -0,0 +1,612 @@
 +/*
 +	touch.qc -- on-screen touch controls
 +
@@ -225,6 +225,9 @@ index 0000000..5b29fc2
 +float touch_sniper_fire_until;	// hold the shot briefly after a sniper release
 +float touch_sprinting;		// auto-run state, so the stop impulse only fires on a change
 +float touch_sprint_retry;	// cltime the sprint request may be repeated at
++float touch_sprint_since;	// cltime running was first wanted, 0 when it is not
++float touch_sprint_stopping;	// cltime running stopped being wanted, 0 while it is
++vector touch_sprint_org;	// view origin when running was first wanted
 +
 +
 +// geometry of action button 'id' -> [centre_x, centre_y, size]
@@ -310,6 +313,16 @@ index 0000000..5b29fc2
 +	return -1;
 +};
 +
++// does some finger other than 'devid' already own the movement stick?
++float(float devid) Touch_StickTaken =
++{
++	float i;
++	for (i = 0; i < TOUCH_MAXFINGERS; i = i + 1)
++		if (i != devid && touch_active[i] && touch_role[i] == TR_MOVE)
++			return TRUE;
++	return FALSE;
++};
++
 +// is action 'id' currently held by a finger? (for the press highlight)
 +float(float id) Touch_BtnHeld =
 +{
@@ -350,7 +363,11 @@ index 0000000..5b29fc2
 +			touch_orgy[devid] = y;
 +			Touch_BtnPress(bid);
 +			return;
-+		} else if (x < g_width * 0.42) {
++		} else if (x < g_width * 0.42 && !Touch_StickTaken(devid)) {
++			// Only one finger drives the stick. A second one landing on this side
++			// would otherwise re-anchor it under itself, and since the deflection
++			// is measured from the anchor the movement would drop to nothing while
++			// the first thumb was still pushing.
 +			touch_role[devid] = TR_MOVE;
 +			touch_move_on = TRUE;
 +			touch_orgx[devid] = x;	// the stick anchors where the thumb lands
@@ -667,15 +684,55 @@ index 0000000..5b29fc2
 +	// out, so one impulse on the way in is not enough to keep running. Re-ask
 +	// while we still want to, but only while it is not already happening
 +	// (zoom 3), and slowly enough not to flood a server with impulses.
++	// The server takes the request, then cancels the sprint on the very next frame
++	// if the player has not got moving yet -- and that dead start costs a full
++	// second of cooldown, during which every retry is refused too. Asking while
++	// still stationary therefore buys a second of walking, which is exactly what
++	// dragging the stick from rest used to do.
++	//
++	// pmove_vel cannot be used to tell whether that has happened: it reads zero,
++	// because it does not report for a csqc-owned entity. Per-frame movement of the
++	// view is no better -- it swings between a crawl and hundreds of units in
++	// consecutive frames. Distance covered since running was first wanted is steady,
++	// and is the thing the server is really asking about.
++	vector vorg = getproperty(VF_ORIGIN);
++
++	if (!want_sprint) {
++		touch_sprint_since = 0;
++	} else if (!touch_sprint_since) {
++		touch_sprint_since = cltime;
++		touch_sprint_org = vorg;	// where we were when running was first wanted
++	}
++
++	vector moved = vorg - touch_sprint_org;
++	moved_z = 0;
++	float rolling = touch_sprint_since && vlen(moved) > 60;
++
 +	if (want_sprint) {
-+		if (wz != 3 && cltime > touch_sprint_retry) {
++		if (wz != 3 && rolling && cltime > touch_sprint_retry) {
 +			localcmd("impulse 23\n");
 +			touch_sprint_retry = cltime + 0.25;
 +		}
 +	} else if (touch_sprinting) {
-+		localcmd("impulse 24\n");
++		// Don't act on a single frame of not wanting it. A thumb that lifts and
++		// lands again re-anchors the stick, so deflection reads as nothing for a
++		// frame or two even though the player never stopped pushing; stopping on
++		// that costs a second of cooldown and the run dies for no reason.
++		if (!touch_sprint_stopping)
++			touch_sprint_stopping = cltime;
++
++		if (cltime - touch_sprint_stopping > 0.2) {
++			localcmd("impulse 24\n");
++			touch_sprinting = FALSE;
++			touch_sprint_stopping = 0;
++		}
 +	}
-+	touch_sprinting = want_sprint;
++
++	if (want_sprint) {
++		touch_sprinting = TRUE;
++		touch_sprint_stopping = 0;
++	}
++
 +};
 +
 +void() Touch_DrawStick =
