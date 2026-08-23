@@ -10234,7 +10234,7 @@ index 0000000..e4b32ed
 +------------------------------------------------------------------------------
 +*/
 diff --git a/engine/vk/vk_init.c b/engine/vk/vk_init.c
-index 3e31550..9dd9858 100644
+index 3e31550..c2d5cf6 100644
 --- a/engine/vk/vk_init.c
 +++ b/engine/vk/vk_init.c
 @@ -729,7 +729,13 @@ static qboolean VK_CreateSwapChain(void)
@@ -10252,7 +10252,22 @@ index 3e31550..9dd9858 100644
  		if (surfcaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR)
  			swapinfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
  		else if (surfcaps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR)
-@@ -4231,7 +4237,7 @@ void VK_DoPresent(struct vkframe *theframe)
+@@ -1181,9 +1187,12 @@ void	VK_Draw_Shutdown(void)
+ 
+ static void VK_DestroySampler(VkSampler s)
+ {
+-	struct vksamplers_s *ref;
+-	for (ref = vk.samplers; ref; ref = ref->next)
++	struct vksamplers_s *ref, *next;
++	//step to the next entry before the body runs: the last usage frees ref, and
++	//the loop increment would then read ref->next back out of freed memory.
++	for (ref = vk.samplers; ref; ref = next)
+ 	{
++		next = ref->next;
+ 		if (ref->samp == s)
+ 		{
+ 			if (--ref->usages == 0)
+@@ -4231,7 +4240,7 @@ void VK_DoPresent(struct vkframe *theframe)
  	}
  	{
  		RSpeedMark();
@@ -10261,7 +10276,7 @@ index 3e31550..9dd9858 100644
  		{
  			if (err == VK_SUBOPTIMAL_KHR)
  				Con_DPrintf("vkQueuePresentKHR: VK_SUBOPTIMAL_KHR\n");
-@@ -4248,8 +4254,7 @@ void VK_DoPresent(struct vkframe *theframe)
+@@ -4248,8 +4257,7 @@ void VK_DoPresent(struct vkframe *theframe)
  			err = vkAcquireNextImageKHR(vk.device, vk.swapchain, timeout, vk.acquiresemaphores[r], vk.acquirefences[r], &vk.acquirebufferidx[r]);
  			switch(err)
  			{
