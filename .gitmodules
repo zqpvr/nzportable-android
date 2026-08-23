@@ -1,3 +1,4 @@
 [submodule "fteqw"]
 	path = fteqw
-	url = https://github.com/nzp-team/fteqw.git
+	url = https://github.com/zqpvr/fteqw.git
+	branch = android
