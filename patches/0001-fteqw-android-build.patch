@@ -65,7 +65,7 @@ index 01fd71b..7b39cfa 100644
  //called by the java code when it wants to know what sort of AudioTrack format to use.
  JNIEXPORT jint JNICALL Java_com_fteqw_FTEDroidEngine_audioinfo(JNIEnv *env, jclass this, jint arg)
 diff --git a/engine/client/sys_droid.c b/engine/client/sys_droid.c
-index 3927ff5..1b478fb 100644
+index 3927ff5..917d70e 100644
 --- a/engine/client/sys_droid.c
 +++ b/engine/client/sys_droid.c
 @@ -549,7 +549,9 @@ static void setCursorVisibility(jboolean visible)
@@ -143,7 +143,21 @@ index 3927ff5..1b478fb 100644
  			}
  
  			r_forceheadless = r_forcevidrestart&1;
-@@ -1281,7 +1319,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
+@@ -745,8 +783,11 @@ static int FTEDroid_MainThread(void *arg)
+ 		{
+ 			if (Key_Dest_Has(kdm_console|kdm_message))
+ 				t |= 1;
+-			if (!Key_Dest_Has(~kdm_game) && cls.state == ca_disconnected)
+-				t |= 1;
++			//upstream also raises the keyboard whenever the game view has focus while
++			//disconnected, on the assumption there is nothing to do but type. That is
++			//true of a bare engine, but this port has menus and on-screen controls, and
++			//the state is briefly ca_disconnected while a connection is being made -- so
++			//it threw the keyboard up over the game every time you joined a server.
+ 			if (sys_osk.ival)
+ 				t |= 2;
+ 		}
+@@ -1281,7 +1322,10 @@ static void FTENativeActivity_shutdown(JNIEnv *env, jobject this)
  //FIXME: we need a version of this that takes a byte array instead of a filename, for android's content gibberish.
  static void FTENativeActivity_openfile(JNIEnv *env, jobject this, jstring filename)
  {
