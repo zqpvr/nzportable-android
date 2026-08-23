@@ -159,10 +159,10 @@ index 47aea3b..de2d714 100644
  	input_angles += cam_snap_difference;
 diff --git a/source/client/touch.qc b/source/client/touch.qc
 new file mode 100644
-index 0000000..c27118c
+index 0000000..5b29fc2
 --- /dev/null
 +++ b/source/client/touch.qc
-@@ -0,0 +1,536 @@
+@@ -0,0 +1,555 @@
 +/*
 +	touch.qc -- on-screen touch controls
 +
@@ -353,6 +353,8 @@ index 0000000..c27118c
 +		} else if (x < g_width * 0.42) {
 +			touch_role[devid] = TR_MOVE;
 +			touch_move_on = TRUE;
++			touch_orgx[devid] = x;	// the stick anchors where the thumb lands
++			touch_orgy[devid] = y;
 +			// fall through and engage straight away
 +		} else {
 +			touch_role[devid] = TR_LOOK;
@@ -363,17 +365,30 @@ index 0000000..c27118c
 +	}
 +
 +	if (touch_role[devid] == TR_MOVE) {
-+		// fixed (locked) stick centred at the bottom-left; the knob clamps to the rim
-+		float scx = g_width * 0.15, scy = g_height * 0.74, radius = g_height * 0.16;
-+		float dx = x - scx, dy = y - scy;
++		// The stick is anchored wherever the thumb landed, not at one fixed spot on
++		// the screen. Measuring from a fixed centre meant that simply putting a thumb
++		// down away from it was already a full-tilt shove in whatever direction it
++		// happened to sit -- you had to land inside one small circle or run off
++		// somewhere you never asked to go. The anchor stays put for the whole touch,
++		// so it can't creep across the screen while held either.
++		float radius = g_height * 0.16;
++		float dx = x - touch_orgx[devid], dy = y - touch_orgy[devid];
 +		float mag = sqrt(dx * dx + dy * dy);
++
 +		if (mag > radius && mag > 0) { dx = dx * (radius / mag); dy = dy * (radius / mag); }
-+		touch_curx[devid] = scx + dx;	// clamped knob position, for drawing
-+		touch_cury[devid] = scy + dy;
-+		float fspeed = cvar("cl_forwardspeed"); if (fspeed <= 0) fspeed = 400;
-+		float sspeed = cvar("cl_sidespeed");    if (sspeed <= 0) sspeed = 400;
-+		touch_move_fwd  = (-dy / radius) * fspeed;	// up on screen = forward
-+		touch_move_side = ( dx / radius) * sspeed;
++
++		touch_curx[devid] = touch_orgx[devid] + dx;	// clamped knob position, for drawing
++		touch_cury[devid] = touch_orgy[devid] + dy;
++
++		if (mag < radius * 0.12) {	// a resting thumb is not an input
++			touch_move_fwd = 0;
++			touch_move_side = 0;
++		} else {
++			float fspeed = cvar("cl_forwardspeed"); if (fspeed <= 0) fspeed = 400;
++			float sspeed = cvar("cl_sidespeed");    if (sspeed <= 0) sspeed = 400;
++			touch_move_fwd  = (-dy / radius) * fspeed;	// up on screen = forward
++			touch_move_side = ( dx / radius) * sspeed;
++		}
 +	}
 +	else if (touch_role[devid] == TR_LOOK) {
 +		float sens = cvar("touch_looksens"); if (sens <= 0) sens = 0.35;
@@ -669,11 +684,15 @@ index 0000000..c27118c
 +	for (i = 0; i < TOUCH_MAXFINGERS; i = i + 1)
 +		if (touch_active[i] && touch_role[i] == TR_MOVE) { finger = i; break; }
 +
-+	// fixed (locked) base bottom-left; knob rests at centre, rides the rim while held
++	// The base follows the anchor, so it appears under the thumb rather than
++	// sitting somewhere the thumb has to find. With nothing held it rests at the
++	// usual spot as a hint of where the stick lives.
 +	float scx = g_width * 0.15, scy = g_height * 0.74;
 +	float base = g_height * 0.34, knob = g_height * 0.15;
 +	float kx = scx, ky = scy, ba = 0.16, ka = 0.22;
 +	if (finger >= 0) {
++		scx = touch_orgx[finger];
++		scy = touch_orgy[finger];
 +		kx = touch_curx[finger];
 +		ky = touch_cury[finger];
 +		ba = 0.30;
