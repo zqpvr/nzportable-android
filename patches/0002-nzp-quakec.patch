@@ -159,10 +159,10 @@ index 47aea3b..de2d714 100644
  	input_angles += cam_snap_difference;
 diff --git a/source/client/touch.qc b/source/client/touch.qc
 new file mode 100644
-index 0000000..7029b75
+index 0000000..c27118c
 --- /dev/null
 +++ b/source/client/touch.qc
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,536 @@
 +/*
 +	touch.qc -- on-screen touch controls
 +
@@ -507,6 +507,20 @@ index 0000000..7029b75
 +	return FALSE;
 +};
 +
++// Is the viewmodel currently inside the given animation? Weapons that lack one
++// report a start of zero or an end before the start, which would otherwise match
++// every frame and read as permanently mid-animation.
++float(float wep, float startidx, float endidx, float frame) Touch_FrameInAnim =
++{
++	float s = GetFrame(wep, startidx);
++	float e = GetFrame(wep, endidx);
++
++	if (s <= 0 || e < s)
++		return FALSE;
++
++	return (frame >= s && frame <= e);
++};
++
 +// scoped bolt-action snipers -- aim, then fire on release, and never fire mid-scope
 +float(float wep) Touch_IsSniper =
 +{
@@ -618,11 +632,20 @@ index 0000000..7029b75
 +	// A wide forward arc counts, not just dead ahead: anything in the forward
 +	// half of the stick runs, so angling around a corner doesn't drop you to a
 +	// walk. Only a real sideways or backward push stops it.
++	// Starting a sprint throws away a reload in progress -- the server clears the
++	// reload timers as it stands the player up -- so wait for it to finish rather
++	// than silently costing the player the magazine they asked for.
++	float wframe = getstatf(STAT_WEAPONFRAME);
++	float reloading = Touch_FrameInAnim(actwep, RELOAD_START,       RELOAD_END,       wframe)
++	               || Touch_FrameInAnim(actwep, RELOAD_EMPTY_START, RELOAD_EMPTY_END, wframe)
++	               || Touch_FrameInAnim(actwep, RELOAD_PART_START,  RELOAD_PART_END,  wframe);
++
 +	float fwd_ref = cvar("cl_forwardspeed"); if (fwd_ref <= 0) fwd_ref = 400;
 +	float want_sprint = touch_move_on
 +	                 && touch_move_fwd > fwd_ref * 0.2
-+	                 && touch_move_fwd > fabs(touch_move_side) * 0.4
-+	                 && !aiming;	// walk while aiming, but 3 means we are already running
++	                 && touch_move_fwd > fabs(touch_move_side) * 0.2
++	                 && !aiming	// walk while aiming, but 3 means we are already running
++	                 && !reloading;
 +
 +	// The server discards a sprint request that arrives before the player is
 +	// actually moving forward, and stops sprinting by itself once stamina runs
