@@ -703,10 +703,10 @@ index 91dc9fc..d30989f 100644
  		case MENU_CONTROL: Menu_Control(); break;
  		case MENU_GAMEPAD: Menu_Gamepad(); break;
 diff --git a/source/menu/main.qc b/source/menu/main.qc
-index 4b51587..c5c1de9 100644
+index 4b51587..97eef4e 100644
 --- a/source/menu/main.qc
 +++ b/source/menu/main.qc
-@@ -307,6 +307,27 @@ void(float wantmode) m_toggle =
+@@ -307,8 +307,96 @@ void(float wantmode) m_toggle =
  	}
  };
  
@@ -731,10 +731,79 @@ index 4b51587..c5c1de9 100644
 +		current_menu = MENU_MAIN;	// any other submenu falls back to the main menu
 +};
 +
++/*
++	Touch input.
++
++	sui only counts K_MOUSE1 as a click, but a touchscreen reports K_TOUCH, so a
++	tap never selected anything here. What was left was the engine's own cursor
++	emulation, which parked the cursor on the first tap and only landed a click
++	on the second -- hence having to press everything twice.
++
++	Translate touch into the events sui already understands. The touch-down
++	arrives before the first position sample, so the click is held back until we
++	know where the finger actually landed; issuing it earlier would click
++	wherever the cursor happened to be sitting beforehand, which is the same bug
++	from the other side.
++*/
++#define K_TOUCH       600
++#define K_TOUCHSLIDE  601
++#define K_TOUCHTAP    602
++#define K_TOUCHLONG   603
++#define MENU_MAXTOUCH 10
++
++float menu_touch_pending[MENU_MAXTOUCH];	// finger down, waiting on a position
++float menu_touch_down[MENU_MAXTOUCH];		// we issued a mouse1-down for this finger
++
++float(float evtype, float scanx, float chary, float devid) Menu_TouchEvent =
++{
++	if (devid < 0 || devid >= MENU_MAXTOUCH)
++		return FALSE;
++
++	if (evtype == IE_KEYDOWN && scanx == K_TOUCH) {
++		menu_touch_pending[devid] = TRUE;
++		return TRUE;
++	}
++
++	if (evtype == IE_KEYUP && scanx == K_TOUCH) {
++		if (menu_touch_down[devid]) {
++			sui_input_event(IE_KEYUP, K_MOUSE1, 0, devid);
++			menu_touch_down[devid] = FALSE;
++		}
++		menu_touch_pending[devid] = FALSE;
++		return TRUE;
++	}
++
++	// swallow the slide/tap/long companions, or they land in the text buffer
++	if ((evtype == IE_KEYDOWN || evtype == IE_KEYUP) &&
++	    (scanx == K_TOUCHSLIDE || scanx == K_TOUCHTAP || scanx == K_TOUCHLONG))
++		return TRUE;
++
++	if (evtype == IE_MOUSEABS) {
++		sui_input_event(IE_MOUSEABS, scanx, chary, devid);	// move the cursor first
++		if (menu_touch_pending[devid]) {
++			menu_touch_pending[devid] = FALSE;
++			sui_input_event(IE_KEYDOWN, K_MOUSE1, 0, devid);
++			menu_touch_down[devid] = TRUE;
++		}
++		return TRUE;
++	}
++
++	return FALSE;	// leave keyboard/controller events to the normal path
++};
++
  float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
  {
++	// Touch is handled before the gamepad bookkeeping below: a second finger
++	// reports devid 1, which that check would otherwise read as a controller.
++	if (Menu_TouchEvent(evtype, scanx, chary, devid)) {
++		last_input_was_gamepad = FALSE;
++		return TRUE;
++	}
++
  	last_input_deviceid = devid;
-@@ -332,8 +353,15 @@ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
+ 	float last_input_storage = last_input_was_gamepad;
+ 
+@@ -332,8 +420,15 @@ float(float evtype, float scanx, float chary, float devid) Menu_InputEvent =
  		return TRUE;
  	}
  
