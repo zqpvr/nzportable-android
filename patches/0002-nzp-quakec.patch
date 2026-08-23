@@ -906,10 +906,10 @@ index d3513d5..3db183b 100644
  
 diff --git a/source/menu/menu_vadv.qc b/source/menu/menu_vadv.qc
 new file mode 100644
-index 0000000..2f96239
+index 0000000..c7d80bd
 --- /dev/null
 +++ b/source/menu/menu_vadv.qc
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,263 @@
 +/*
 +	menu_vadv.qc -- advanced video options
 +
@@ -1016,15 +1016,22 @@ index 0000000..2f96239
 +{
 +	current_va_rtx = !current_va_rtx;
 +	cvar_set("r_shadow_raytrace", current_va_rtx ? "1" : "0");
++
++	// Rays are traced against realtime lights, so this does nothing on its own.
++	// Switch the lighting on rather than refusing the button and leaving the
++	// reason to be guessed at.
++	if (current_va_rtx && !current_va_hiend)
++		Menu_VideoAdv_ToggleHighEnd();
 +};
 +
 +//
 +// Menu_VideoAdv_RaytraceReady()
-+// Whether the raytracing row is selectable at all.
++// Whether the raytracing row is selectable at all. Vulkan is the only hard
++// requirement; the lighting it needs is switched on for you.
 +//
 +float() Menu_VideoAdv_RaytraceReady =
 +{
-+	return Menu_VideoAdv_VulkanActive() && current_va_hiend;
++	return Menu_VideoAdv_VulkanActive();
 +};
 +
 +void() Menu_VideoAdv_ToggleDynamic =
@@ -1123,10 +1130,8 @@ index 0000000..2f96239
 +	// against realtime lights and there is nothing to trace without them
 +	if (!Menu_VideoAdv_VulkanActive())
 +		Menu_GreyButton(2, "[VULKAN ONLY] RAYTRACED SHADOWS");
-+	else if (!current_va_hiend)
-+		Menu_GreyButton(2, "[NEEDS LIGHTING] RAYTRACED SHADOWS");
 +	else {
-+		Menu_Button(2, "va_rtx", "RAYTRACED SHADOWS", "Trace shadow rays on the GPU. Needs hardware raytracing support.") ? Menu_VideoAdv_ToggleRaytrace() : 0;
++		Menu_Button(2, "va_rtx", "RAYTRACED SHADOWS", "Trace shadow rays on the GPU. Turns on the lighting above, and needs a GPU that supports it.") ? Menu_VideoAdv_ToggleRaytrace() : 0;
 +		Menu_DrawOptionValue(2, current_va_rtx ? "ENABLED" : "DISABLED");
 +	}
 +
