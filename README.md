@@ -36,12 +36,6 @@ An arm64 device on Android 7.0 or newer. The APK is about 124 MB, and unpacks
 Vulkan 1.2 is used when the driver offers it, which is most devices from the
 last few years. Anything older falls back to OpenGL ES 2.
 
-Raytraced shadows need `VK_KHR_ray_query`, which is a hardware feature rather
-than a driver one. Adreno 740 and later have it; Mali needs the Immortalis
-variant, so a plain Mali-G715 as found in a Pixel 9 will not run them. The
-engine checks at startup and quietly falls back, so the option is safe to leave
-on either way.
-
 ## Controls
 
 The left half of the screen is the stick, the right half is look. Neither has a
