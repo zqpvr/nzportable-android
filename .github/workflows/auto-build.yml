@@ -1,7 +1,8 @@
 name: Auto build APK
 
-# Rebuilds the signed release APK against the latest NZ:P (engine, game code, and data)
-# and publishes it as a GitHub release. Runs weekly and on manual trigger.
+# Rebuilds the signed release APK against the latest NZ:P game data (with game code
+# built at the pinned quakec commit, see patches/README.md) and publishes it as a
+# GitHub release. Runs weekly and on manual trigger.
 on:
   workflow_dispatch:
   schedule:
@@ -19,11 +20,24 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Set up Python (for quakec's hash table generator)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Build game code (.dats) from quakec
         run: |
           mkdir -p /tmp/keep
           # last resort: the .dats already bundled in the repo
-          cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat /tmp/keep/
+          cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat \
+             app/src/main/assets/nzp/qwprogs.dat /tmp/keep/
+
+          # Upstream stopped building the FTE server progs on 2026-09-12: its nightly
+          # now ships a Vril progs.dat, which calls numbered builtins this engine
+          # doesn't have (json_*, strtrim, nzp_*), and quakec's tip no longer compiles
+          # with -DFTE. So all three .dats are built here, at the newest commit that
+          # still supports FTE (patches/0002-base.txt), never at upstream's tip.
+          BASE=$(cat patches/0002-base.txt)
 
           # our patch is LF but quakec's sources are CRLF, hence tr + --ignore-whitespace
           apply_patch() { tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way --ignore-whitespace -; }
@@ -31,27 +45,21 @@ jobs:
           build_dats() {
             chmod +x quakec/bin/fteqcc-cli-lin
             mkdir -p quakec/build/fte   # fteqcc won't create its output dir
-            ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src \
-                            && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src )
-            cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat /tmp/keep/
+            # the server QC includes a generated asset-path table; pandas 3 breaks the generator
+            pip install -q 'pandas<3' fastcrc colorama \
+              && ( cd quakec && python3 bin/qc_hash_generator.py -i tools/asset_conversion_table.csv -o source/server/hash_table.qc ) \
+              && ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src \
+                                 && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src \
+                                 && ./fteqcc-cli-lin -O3 -DFTE -srcfile ../progs/ssqc.src ) \
+              && cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat quakec/build/fte/qwprogs.dat /tmp/keep/
           }
 
-          git clone https://github.com/nzp-team/quakec.git quakec
+          git clone -q https://github.com/nzp-team/quakec.git quakec
 
-          if ( cd quakec && apply_patch ) && build_dats; then
-            echo "Using freshly built .dats from latest quakec"
+          if ( cd quakec && git checkout -q "$BASE" && apply_patch ) && build_dats; then
+            echo "Using freshly built .dats from quakec $BASE"
           else
-            # Latest upstream drifted away from the patch. Rather than shipping the
-            # stale bundled .dats, rebuild against the commit the patch was made for --
-            # that still gets our own changes in, just without the newest upstream work.
-            BASE=$(cat patches/0002-base.txt)
-            echo "::warning::patch did not apply to latest quakec; rebuilding at pinned base $BASE"
-            rm -rf quakec/build
-            if ( cd quakec && git checkout -q "$BASE" && git checkout -q -- . && apply_patch ) && build_dats; then
-              echo "Using .dats built at the pinned base"
-            else
-              echo "::error::could not build .dats at the pinned base either; falling back to the bundled ones"
-            fi
+            echo "::error::could not build .dats at the pinned base $BASE; falling back to the bundled ones"
           fi
 
       - name: Fetch latest game data (nightly) and overlay our files
@@ -65,12 +73,51 @@ jobs:
           mkdir -p /tmp/nzpx app/src/main/assets
           unzip -q nzp.zip -d /tmp/nzpx
           cp -r "$(find /tmp/nzpx -type d -name nzp | head -1)" app/src/main/assets/nzp
+          # The nightly's progs.dat is the Vril server QC, which this engine can't run.
+          # Drop it so it can never be picked up in place of our qwprogs.dat.
+          rm -f app/src/main/assets/nzp/progs.dat
           # overlay our game code (fresh or bundled) + preserved config + touch art
-          cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
+          cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/qwprogs.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
           # copy the contents, not the directory, so this still lands correctly if
           # upstream ever ships a gfx/touch of its own
           mkdir -p app/src/main/assets/nzp/gfx/touch
           cp -r /tmp/keep_touch/. app/src/main/assets/nzp/gfx/touch/
+
+      - name: Smoke test - load every map on a dedicated server
+        # Compiling the QuakeC and linking the engine prove nothing about whether
+        # they agree: a builtin the engine lacks only fails when the server runs
+        # it, and that once shipped weeks of releases that couldn't load a map.
+        # So run this engine's server, headless, on the exact data going into the APK.
+        run: |
+          sudo apt-get install -y -q zlib1g-dev > /dev/null
+          make -C fteqw/engine -j"$(nproc)" sv-rel FTE_TARGET=linux64 > /dev/null
+          SV="$PWD/fteqw/engine/release/fteqw-sv64"
+          MANIFEST="$PWD/app/src/main/assets/manifest/nzp.fmf"
+
+          # run on a copy: the server writes configs next to the data, and a stray
+          # one in the APK would pin settings (see patches/README.md)
+          SMOKE="$RUNNER_TEMP/smoke"
+          rm -rf "$SMOKE" && mkdir -p "$SMOKE"
+          cp -r app/src/main/assets/nzp "$SMOKE/nzp"
+          cd "$SMOKE"
+
+          failed=0
+          for bsp in nzp/maps/*.bsp; do
+            map=$(basename "$bsp" .bsp)
+            rc=0
+            out=$(timeout 60 "$SV" -nohome -basedir . -manifest "$MANIFEST" +sv_public 0 \
+                    +map "$map" +wait +wait +status +wait +wait +quit 2>&1) || rc=$?
+            if [ "$rc" -eq 0 ] && echo "$out" | grep -q "current map *: $map" \
+                 && ! echo "$out" | grep -qE "SV_Error|not implemented|not compatible"; then
+              echo "ok   $map"
+            else
+              echo "::error::map $map failed to load (exit $rc)"
+              echo "$out" | grep -E "SV_Error|not implemented|not compatible|Error" | head -5
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ]
+
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

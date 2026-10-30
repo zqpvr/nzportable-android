@@ -69,7 +69,7 @@ they can be read and reverted individually.
 | Piece | Where it comes from |
 | --- | --- |
 | Engine | `fteqw` submodule, our fork |
-| Game code | NZ:P's QuakeC plus `patches/0002-nzp-quakec.patch` |
+| Game code | NZ:P's QuakeC, pinned to the commit in `patches/0002-base.txt`, plus `patches/0002-nzp-quakec.patch` |
 | Game data | NZ:P's nightly release, bundled into the APK |
 | TLS | GnuTLS, cross-compiled for arm64 and vendored |
 
@@ -102,9 +102,10 @@ Release builds are signed from the environment, so `assembleRelease` reads
 `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`, and falls
 back to debug signing when they are absent.
 
-A workflow rebuilds the signed APK weekly against the latest NZ:P and publishes
-it. If the QuakeC patch stops applying to upstream's tip, it rebuilds at the
-commit recorded in `patches/0002-base.txt` rather than shipping stale code.
+A workflow rebuilds the signed APK weekly against the latest NZ:P game data and
+publishes it. The game code is built at the QuakeC commit recorded in
+`patches/0002-base.txt`, not upstream's tip (see `patches/README.md` for why), and
+the release is refused unless a headless server loads every map in the bundle.
 
 The APK ships a stripped library, so a native crash arrives as bare offsets. The
 unstripped one is kept as a build artifact, stamped with its GNU build ID, so a
