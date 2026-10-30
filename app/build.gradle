@@ -28,13 +28,14 @@ android {
         externalNativeBuild {
             cmake {
                 // Build only the Android engine shared library (libftedroid.so).
-                // CMAKE_INSTALL_PREFIX is forced to a space-free path: the engine bakes
+                // CMAKE_INSTALL_PREFIX is forced to a short absolute path: the engine bakes
                 // ${CMAKE_INSTALL_FULL_LIBDIR} into CFLAGS (FTE_LIBRARY_PATH/FTE_DATA_DIR),
-                // and Windows' default "C:\Program Files (x86)\..." breaks the clang args.
-                // These paths are unused on Android.
+                // where Windows' default "C:\Program Files (x86)\..." breaks the clang args,
+                // and Ogg and Vorbis write package configs that need it absolute, which
+                // /fte-prefix is on both Windows and Linux. These paths are unused on Android.
                 arguments '-DFTE_ENGINE_FTEDROID=true',
                           '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
-                          '-DCMAKE_INSTALL_PREFIX=C:/fte-prefix',
+                          '-DCMAKE_INSTALL_PREFIX=/fte-prefix',
                           // Modern clang flags far more warnings than the engine's GCC era;
                           // -Werror would block bring-up on harmless ones (e.g. NO_PNG being
                           // defined by both bothdefs.h and the CMake feature flags).
