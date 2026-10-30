@@ -16,9 +16,9 @@ android {
         applicationId 'gay.nzp.nzportable'
         minSdk 24          // GLES2 + arm64; covers the vast majority of active devices
         targetSdk 34
-        // versionCode can be overridden by CI (e.g. the run number) so each auto-build is unique.
+        // CI sets both: the run number, and the build's name, which is also its release tag
         versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
-        versionName '0.1.0'
+        versionName System.getenv('VERSION_NAME') ?: 'local build'
 
         ndk {
             // arm64 first. Add 'armeabi-v7a' once arm64 is confirmed working.

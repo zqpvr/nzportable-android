@@ -119,9 +119,9 @@ Release builds are signed from the environment, so `assembleRelease` reads
 `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`, and falls
 back to debug signing when they are absent.
 
-A workflow rebuilds the signed APK weekly and publishes it, but only after a
-headless server built from the same engine has loaded every map with the same
-game code and data (`tools/smoke-test.sh`).
+A workflow builds the signed APK on every push and publishes it in place of the
+previous release, but only after a headless server built from the same engine
+has loaded every map with the same game code and data (`tools/smoke-test.sh`).
 
 The APK ships a stripped library, so a native crash arrives as bare offsets. The
 unstripped one is kept as a build artifact, stamped with its GNU build ID, so a
