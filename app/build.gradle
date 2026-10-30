@@ -84,7 +84,16 @@ android {
             // Reuse FTEQW's Android Java glue (com.fteqw.*) straight from the submodule.
             java.srcDirs += ['../fteqw/engine/droid/src']
             manifest.srcFile 'src/main/AndroidManifest.xml'
-            assets.srcDirs += ['src/main/assets']
+            // The game data (tools/build-data.sh) and our own files on top of it go into
+            // the root of the APK, where the engine reads them in place.
+            resources.srcDirs += ['../nzp']
+        }
+    }
+
+    packaging {
+        resources {
+            // AGP leaves out anything named with a leading _, and some of the game's files are
+            excludes -= ['**/_*', '**/_*/**']
         }
     }
 
@@ -122,5 +131,14 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// nzp/ is assembled by tools/build-data.sh rather than tracked, and an APK without it
+// would start to a black screen, so refuse to build one
+tasks.named('preBuild') {
+    doFirst {
+        if (!rootProject.file('nzp/version.txt').exists())
+            throw new GradleException('No game data in nzp/: run tools/build-data.sh first')
     }
 }
