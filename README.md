@@ -62,14 +62,15 @@ from the hip. Weapons with no sights fire the moment you press.
 
 ## How it works
 
-The engine is a [fork](https://github.com/zqpvr/fteqw) of NZ:P's FTEQW, on an
-`android` branch. Its changes are ordinary commits rather than a patch file, so
-they can be read and reverted individually.
+The engine and the game code are forks of NZ:P's, [fteqw](https://github.com/zqpvr/fteqw)
+and [quakec](https://github.com/zqpvr/quakec), each on an `android` branch. Their
+changes are ordinary commits rather than patch files, so they can be read and
+reverted individually.
 
 | Piece | Where it comes from |
 | --- | --- |
 | Engine | `fteqw` submodule, our fork |
-| Game code | NZ:P's QuakeC, pinned to the commit in `patches/0002-base.txt`, plus `patches/0002-nzp-quakec.patch` |
+| Game code | `quakec` submodule, our fork, on the last upstream commit FTE can run |
 | Game data | NZ:P's nightly release, bundled into the APK |
 | TLS | GnuTLS, cross-compiled for arm64 and vendored |
 
@@ -103,9 +104,10 @@ Release builds are signed from the environment, so `assembleRelease` reads
 back to debug signing when they are absent.
 
 A workflow rebuilds the signed APK weekly against the latest NZ:P game data and
-publishes it. The game code is built at the QuakeC commit recorded in
-`patches/0002-base.txt`, not upstream's tip (see `patches/README.md` for why), and
-the release is refused unless a headless server loads every map in the bundle.
+publishes it. The game code is built from the quakec fork, which stays on the
+last upstream commit FTE can run now that upstream has moved to its own Vril
+engine, and the release is refused unless a headless server loads every map in
+the bundle.
 
 The APK ships a stripped library, so a native crash arrives as bare offsets. The
 unstripped one is kept as a build artifact, stamped with its GNU build ID, so a
@@ -120,7 +122,7 @@ app/
   src/main/jniLibs/     libgnutls.so
 fteqw/                  the engine, a submodule pointing at our fork
 gnutls-android/         cross-compile scripts for GMP, Nettle and GnuTLS
-patches/                the QuakeC patch and the commit it applies to
+quakec/                 the game code, a submodule pointing at our fork
 ```
 
 ## Licence
