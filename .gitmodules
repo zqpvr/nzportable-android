@@ -2,3 +2,7 @@
 	path = fteqw
 	url = https://github.com/zqpvr/fteqw.git
 	branch = android
+[submodule "quakec"]
+	path = quakec
+	url = https://github.com/zqpvr/quakec.git
+	branch = android
