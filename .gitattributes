@@ -1,3 +1,2 @@
-# Ship the game data exactly as-is - never convert line endings (some of these formats
-# are binary-ish and would be corrupted by EOL normalization).
-app/src/main/assets/nzp/** -text
+# Our game files ship exactly as written, so never convert their line endings.
+app/src/main/resources/** -text

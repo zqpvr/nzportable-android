@@ -7,8 +7,8 @@ the Zombies mode built on Spike's FTEQW engine. This is a native arm64 build of
 that engine, not a wrapper or an emulator, so it runs the same game code the
 desktop builds do.
 
-The game data is inside the APK and unpacks on first run. There is nothing to
-side-load and nothing to copy across.
+The game data is inside the APK and is read from there, so there is nothing to
+unpack, side-load or copy across.
 
 Signed builds are on the [releases page](https://github.com/zqpvr/nzportable-android/releases).
 
@@ -24,13 +24,14 @@ Signed builds are on the [releases page](https://github.com/zqpvr/nzportable-and
 - Cross-platform online play against a Windows host, both hosting and joining.
 - Vulkan by default, OpenGL ES as a fallback, switchable from the video menu
   without editing a config.
-- Realtime lighting that lights the world from the map's own light entities,.
-- Weekly automated builds against the latest NZ:P.
+- Realtime lighting that lights the world from the map's own light entities.
+- Automated builds, released only once every map loads with the game code and
+  data going into them.
 
 ## Requirements
 
-An arm64 device on Android 7.0 or newer. The APK is about 124 MB, and unpacks
-127 MB of game data on first launch.
+An arm64 device on Android 7.0 or newer, and about 125 MB of space: the APK is
+all there is, since the game data is read from inside it.
 
 Vulkan 1.2 is used when the driver offers it, which is most devices from the
 last few years. Anything older falls back to OpenGL ES 2.
@@ -71,8 +72,17 @@ reverted individually.
 | --- | --- |
 | Engine | `fteqw` submodule, our fork |
 | Game code | `quakec` submodule, our fork, on the last upstream commit FTE can run |
-| Game data | NZ:P's nightly release, bundled into the APK |
+| Game data | NZ:P's assets from their last FTE build, packed into the APK and read in place |
 | TLS | GnuTLS, cross-compiled for arm64 and vendored |
+
+NZ:P's PC build moved from FTE to its own Vril engine in September 2026, and the
+game code and assets moved with it: upstream's `progs.dat` now calls builtins
+FTE doesn't have, and FTE's particles, shaders, menu art and Ogg music are gone
+from its data. So both are pinned to the last FTE build, quakec 6ed6305 and
+assets c5a1d8070b.
+
+The data sits in the root of the APK, which the engine already mounts as a pack,
+so it is read in place rather than unpacked to storage.
 
 Online play goes through FTE's ICE broker, which requires DTLS, and FTE's only
 crypto backend is GnuTLS, `dlopen`'d at runtime and absent on Android. So it is
@@ -95,7 +105,13 @@ the mouse events the menus already understand.
 Needs JDK 17, since newer JDKs are too new for the Gradle version in use, and
 NDK 26.3.11579264. `compileSdk` is 34 and `minSdk` is 24.
 
+The game data isn't tracked. `tools/build-data.sh` assembles it into `nzp/`,
+downloading NZ:P's assets and building the game code from `quakec/`, which needs
+a python3 with pandas, fastcrc and colorama.
+
 ```bash
+git submodule update --init
+tools/build-data.sh
 ./gradlew :app:assembleDebug
 ```
 
@@ -103,11 +119,9 @@ Release builds are signed from the environment, so `assembleRelease` reads
 `KEYSTORE_FILE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD`, and falls
 back to debug signing when they are absent.
 
-A workflow rebuilds the signed APK weekly against the latest NZ:P game data and
-publishes it. The game code is built from the quakec fork, which stays on the
-last upstream commit FTE can run now that upstream has moved to its own Vril
-engine, and the release is refused unless a headless server loads every map in
-the bundle.
+A workflow rebuilds the signed APK weekly and publishes it, but only after a
+headless server built from the same engine has loaded every map with the same
+game code and data (`tools/smoke-test.sh`).
 
 The APK ships a stripped library, so a native crash arrives as bare offsets. The
 unstripped one is kept as a build artifact, stamped with its GNU build ID, so a
@@ -118,11 +132,14 @@ tombstone can be resolved against the exact binary it came from.
 ```
 app/
   build.gradle          SDK levels, signing, CMake and NDK wiring
-  src/main/assets/nzp/  game data, bundled and unpacked on first run
+  src/main/resources/   our files packed next to the game data: config, server
+                        list and touch art
   src/main/jniLibs/     libgnutls.so
 fteqw/                  the engine, a submodule pointing at our fork
 gnutls-android/         cross-compile scripts for GMP, Nettle and GnuTLS
+nzp/                    the game data, from tools/build-data.sh (not tracked)
 quakec/                 the game code, a submodule pointing at our fork
+tools/                  build-data.sh and smoke-test.sh
 ```
 
 ## Licence

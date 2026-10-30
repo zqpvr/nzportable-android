@@ -22,3 +22,6 @@ Thumbs.db
 
 # Internal planning doc (local only)
 PLAN.md
+
+# Game data, assembled by tools/build-data.sh
+/nzp/
