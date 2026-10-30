@@ -2,14 +2,20 @@ name: Auto build APK
 
 # Builds the signed release APK from the engine and game code forks and NZ:P's last
 # FTE-era assets, checks them against each other on a dedicated server, and publishes it
-# as a GitHub release. Runs weekly and on manual trigger.
+# as a GitHub release in place of the previous one. Everything it builds from is pinned,
+# so it runs when this repo changes rather than on a timer.
 on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * 1'   # Mondays, 06:00 UTC
+
+concurrency:
+  group: auto-build
+  cancel-in-progress: true
 
 permissions:
-  contents: write   # create releases
+  contents: write   # create and delete releases
 
 jobs:
   build:
@@ -19,6 +25,10 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
+
+      - name: Name the build
+        # one name for the release tag, the version the menu and Android show, and the APK
+        run: echo "BUILD_NAME=build-$(date -u +%Y%m%d)-${{ github.run_number }}" >> "$GITHUB_ENV"
 
       - name: Set up Python (for quakec's hash table generator)
         uses: actions/setup-python@v7
@@ -58,6 +68,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: ${{ env.BUILD_NAME }}
         run: |
           chmod +x ./gradlew
           ./gradlew :app:assembleRelease --no-daemon --console=plain
@@ -96,17 +107,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          DATE=$(date +%Y%m%d)
-          RUN=${{ github.run_number }}
-
           # The tag keeps a prefix so it reads as one and still sorts by date.
           # The APK name is decoupled from it: what someone sees in their
           # downloads folder should say when it was built, not how it was
           # triggered, so the date and build number carry it on their own.
-          TAG="build-$DATE-$RUN"
-          APK="nzportable-android-$DATE-$RUN.apk"
-
+          APK="nzportable-android-${BUILD_NAME#build-}.apk"
           mv app/build/outputs/apk/release/app-release.apk "$APK"
-          gh release create "$TAG" "$APK" \
-            --title "Build $DATE" \
-            --notes "Automated build."
+          gh release create "$BUILD_NAME" "$APK" \
+            --title "Build $(echo "$BUILD_NAME" | cut -d- -f2)" \
+            --notes "Built from nzportable-android ${GITHUB_SHA::7}, the engine at $(git -C fteqw rev-parse --short HEAD), the game code at $(git -C quakec rev-parse --short HEAD), and NZ:P's assets at c5a1d8070b."
+
+          # only the newest build is kept
+          for old in $(gh release list --limit 100 --json tagName --jq '.[].tagName | select(startswith("build-"))'); do
+            [ "$old" = "$BUILD_NAME" ] || gh release delete "$old" --yes --cleanup-tag
+          done
