@@ -25,6 +25,8 @@ Signed builds are on the [releases page](https://github.com/zqpvr/nzportable-and
 - Vulkan by default, OpenGL ES as a fallback, switchable from the video menu
   without editing a config.
 - Realtime lighting that lights the world from the map's own light entities.
+- The phone vibrates when you fire, knife, take a hit or get caught in a blast.
+  Rumble in the controller menu turns it off.
 - Automated builds, released only once every map loads with the game code and
   data going into them.
 
