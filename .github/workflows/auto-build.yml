@@ -1,7 +1,7 @@
 name: Auto build APK
 
 # Rebuilds the signed release APK against the latest NZ:P game data (with game code
-# built at the pinned quakec commit, see patches/README.md) and publishes it as a
+# built from our quakec fork) and publishes it as a
 # GitHub release. Runs weekly and on manual trigger.
 on:
   workflow_dispatch:
@@ -26,41 +26,19 @@ jobs:
           python-version: '3.12'
 
       - name: Build game code (.dats) from quakec
+        # quakec is our fork, on the last upstream commit FTE can still run: upstream's PC
+        # build moved to its own Vril engine, whose progs.dat calls builtins this one lacks
         run: |
           mkdir -p /tmp/keep
-          # last resort: the .dats already bundled in the repo
-          cp app/src/main/assets/nzp/csprogs.dat app/src/main/assets/nzp/menu.dat \
-             app/src/main/assets/nzp/qwprogs.dat /tmp/keep/
-
-          # Upstream stopped building the FTE server progs on 2026-09-12: its nightly
-          # now ships a Vril progs.dat, which calls numbered builtins this engine
-          # doesn't have (json_*, strtrim, nzp_*), and quakec's tip no longer compiles
-          # with -DFTE. So all three .dats are built here, at the newest commit that
-          # still supports FTE (patches/0002-base.txt), never at upstream's tip.
-          BASE=$(cat patches/0002-base.txt)
-
-          # our patch is LF but quakec's sources are CRLF, hence tr + --ignore-whitespace
-          apply_patch() { tr -d '\r' < ../patches/0002-nzp-quakec.patch | git apply --3way --ignore-whitespace -; }
-
-          build_dats() {
-            chmod +x quakec/bin/fteqcc-cli-lin
-            mkdir -p quakec/build/fte   # fteqcc won't create its output dir
-            # the server QC includes a generated asset-path table; pandas 3 breaks the generator
-            pip install -q 'pandas<3' fastcrc colorama \
-              && ( cd quakec && python3 bin/qc_hash_generator.py -i tools/asset_conversion_table.csv -o source/server/hash_table.qc ) \
-              && ( cd quakec/bin && ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src \
-                                 && ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src \
-                                 && ./fteqcc-cli-lin -O3 -DFTE -srcfile ../progs/ssqc.src ) \
-              && cp quakec/build/fte/csprogs.dat quakec/build/fte/menu.dat quakec/build/fte/qwprogs.dat /tmp/keep/
-          }
-
-          git clone -q https://github.com/nzp-team/quakec.git quakec
-
-          if ( cd quakec && git checkout -q "$BASE" && apply_patch ) && build_dats; then
-            echo "Using freshly built .dats from quakec $BASE"
-          else
-            echo "::error::could not build .dats at the pinned base $BASE; falling back to the bundled ones"
-          fi
+          pip install -q pandas fastcrc colorama
+          cd quakec
+          python3 bin/qc_hash_generator.py -i tools/asset_conversion_table.csv -o source/server/hash_table.qc
+          mkdir -p build/fte   # fteqcc won't create its output dir
+          cd bin
+          ./fteqcc-cli-lin -DFTE -srcfile ../progs/csqc.src
+          ./fteqcc-cli-lin -DFTE -srcfile ../progs/menu.src
+          ./fteqcc-cli-lin -O3 -DFTE -srcfile ../progs/ssqc.src
+          cp ../build/fte/csprogs.dat ../build/fte/menu.dat ../build/fte/qwprogs.dat /tmp/keep/
 
       - name: Fetch latest game data (nightly) and overlay our files
         run: |
@@ -76,7 +54,7 @@ jobs:
           # The nightly's progs.dat is the Vril server QC, which this engine can't run.
           # Drop it so it can never be picked up in place of our qwprogs.dat.
           rm -f app/src/main/assets/nzp/progs.dat
-          # overlay our game code (fresh or bundled) + preserved config + touch art
+          # overlay our game code + preserved config + touch art
           cp /tmp/keep/csprogs.dat /tmp/keep/menu.dat /tmp/keep/qwprogs.dat /tmp/keep/nzportable.cfg /tmp/keep/masters.txt app/src/main/assets/nzp/
           # copy the contents, not the directory, so this still lands correctly if
           # upstream ever ships a gfx/touch of its own
@@ -95,7 +73,7 @@ jobs:
           MANIFEST="$PWD/app/src/main/assets/manifest/nzp.fmf"
 
           # run on a copy: the server writes configs next to the data, and a stray
-          # one in the APK would pin settings (see patches/README.md)
+          # one in the APK would pin settings
           SMOKE="$RUNNER_TEMP/smoke"
           rm -rf "$SMOKE" && mkdir -p "$SMOKE"
           cp -r app/src/main/assets/nzp "$SMOKE/nzp"
