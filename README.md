@@ -10,7 +10,7 @@ desktop builds do.
 The game data is inside the APK and is read from there, so there is nothing to
 unpack, side-load or copy across.
 
-Signed builds are on the [releases page](https://github.com/zqpvr/nzportable-android/releases).
+Signed builds are on the [releases page](https://git.zqpvr.net/zqpvr01/nzportable-android/releases).
 
 ## Features
 
@@ -65,8 +65,8 @@ from the hip. Weapons with no sights fire the moment you press.
 
 ## How it works
 
-The engine and the game code are forks of NZ:P's, [fteqw](https://github.com/zqpvr/fteqw)
-and [quakec](https://github.com/zqpvr/quakec), each on an `android` branch. Their
+The engine and the game code are forks of NZ:P's, [fteqw](https://git.zqpvr.net/zqpvr01/fteqw)
+and [quakec](https://git.zqpvr.net/zqpvr01/quakec), each on an `android` branch. Their
 changes are ordinary commits rather than patch files, so they can be read and
 reverted individually.
 

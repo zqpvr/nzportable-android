@@ -13,7 +13,7 @@ OUT="$ROOT/nzp"
 # nzp-team/assets c5a1d8070b, the last commit before NZ:P's PC build moved from FTE to its
 # own Vril engine, as its Asset Assembly workflow packaged it (run 33706329420). Upstream's
 # copy expires with that run's artifacts, so it is kept as a release asset here.
-ASSETS_URL="https://github.com/zqpvr/nzportable-android/releases/download/game-data/pc-nzp-assets-c5a1d8070b.zip"
+ASSETS_URL="https://git.zqpvr.net/zqpvr01/nzportable-android/releases/download/game-data/pc-nzp-assets-c5a1d8070b.zip"
 ASSETS_SHA256="8af5a922a161ae94cd6ed2993841720ce5e8343b6e92ab3c5e55bcadda2511b8"
 ZIP="${XDG_CACHE_HOME:-$HOME/.cache}/nzportable-android/${ASSETS_URL##*/}"
 
