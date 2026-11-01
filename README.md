@@ -77,7 +77,7 @@ reverted individually.
 | Engine | `fteqw` submodule, our fork |
 | Game code | `quakec` submodule, our fork, on the last upstream commit FTE can run |
 | Game data | NZ:P's assets from their last FTE build, packed into the APK and read in place |
-| TLS | GnuTLS, cross-compiled for arm64 and vendored |
+| TLS | GnuTLS 3.8.13, built for arm64 by `tools/build-gnutls.sh` and vendored |
 
 NZ:P's PC build moved from FTE to its own Vril engine in September 2026, and the
 game code and assets moved with it: upstream's `progs.dat` now calls builtins
@@ -90,10 +90,10 @@ so it is read in place rather than unpacked to storage.
 
 Online play goes through FTE's ICE broker, which requires DTLS, and FTE's only
 crypto backend is GnuTLS, `dlopen`'d at runtime and absent on Android. So it is
-cross-compiled here, with GMP and Nettle static-linked into one 2.7 MB library
-whose only dependencies are libc and libdl. It is built with 16 KB page
-alignment, because devices with 16 KB pages reject a 4 KB-aligned library and
-that is what made `dlopen` fail.
+cross-compiled here by `tools/build-gnutls.sh`, with GMP and Nettle static-linked
+into one 2.9 MB library whose only dependencies are libc and libdl. It has 16 KB
+page alignment, because devices with 16 KB pages reject a 4 KB-aligned library
+and that is what made `dlopen` fail.
 
 Joining a Windows host needed an engine fix as well. FTE's SChannel backend
 cannot act as a DTLS *server*, so the Android side always offers
@@ -140,10 +140,9 @@ app/
                         list and touch art
   src/main/jniLibs/     libgnutls.so
 fteqw/                  the engine, a submodule pointing at our fork
-gnutls-android/         cross-compile scripts for GMP, Nettle and GnuTLS
 nzp/                    the game data, from tools/build-data.sh (not tracked)
 quakec/                 the game code, a submodule pointing at our fork
-tools/                  build-data.sh and smoke-test.sh
+tools/                  build-data.sh, smoke-test.sh and build-gnutls.sh
 ```
 
 ## Licence
