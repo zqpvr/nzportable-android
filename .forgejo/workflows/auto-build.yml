@@ -117,7 +117,7 @@ jobs:
           APK="nzportable-android-${BUILD_NAME#build-}.apk"
           mv app/build/outputs/apk/release/app-release.apk "$APK"
           NOTES="Built from nzportable-android ${GITHUB_SHA::7}, the engine at $(git -C fteqw rev-parse --short HEAD), the game code at $(git -C quakec rev-parse --short HEAD), and NZ:P's assets at c5a1d8070b."
-          id=$(jq -n --arg tag "$BUILD_NAME" --arg sha "$GITHUB_SHA" --arg name "Build $(echo "$BUILD_NAME" | cut -d- -f2)" --arg body "$NOTES" \
+          id=$(jq -n --arg tag "$BUILD_NAME" --arg sha "$GITHUB_SHA" --arg name "Auto build ${BUILD_NAME##*-}" --arg body "$NOTES" \
                  '{tag_name: $tag, target_commitish: $sha, name: $name, body: $body}' \
                | curl -sSf -H "$AUTH" -H "Content-Type: application/json" -d @- "$API/releases" | jq .id)
           curl -sSf -H "$AUTH" -F "attachment=@$APK" "$API/releases/$id/assets?name=$APK" > /dev/null
