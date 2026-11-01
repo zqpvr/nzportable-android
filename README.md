@@ -22,6 +22,8 @@ Signed builds are on the [releases page](https://git.zqpvr.net/zqpvr01/nzportabl
 - Bluetooth and USB controllers, with desktop-matching binds, glyph prompts and
   stick menu navigation. Picking one up hides the on-screen pad.
 - Cross-platform online play against a Windows host, both hosting and joining.
+- On a server running another version of the game, whose game code has no
+  touch controls, the engine draws its own: buttons and a movement stick.
 - Vulkan by default, OpenGL ES as a fallback, switchable from the video menu
   without editing a config.
 - Realtime lighting that lights the world from the map's own light entities.
