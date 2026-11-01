@@ -8,17 +8,17 @@ def nzpBuildConfig = new File(rootProject.projectDir, 'fteqw/engine/common/confi
         .absolutePath.replace('\\', '/')
 
 android {
-    namespace 'gay.nzp.nzportable'
-    compileSdk 34
-    ndkVersion '26.3.11579264'
+    namespace = 'gay.nzp.nzportable'
+    compileSdk = 37
+    ndkVersion = '30.0.16248370'
 
     defaultConfig {
-        applicationId 'gay.nzp.nzportable'
-        minSdk 24          // GLES2 + arm64; covers the vast majority of active devices
-        targetSdk 34
+        applicationId = 'gay.nzp.nzportable'
+        minSdk = 24          // GLES2 + arm64; covers the vast majority of active devices
+        targetSdk = 34
         // CI sets both: the run number, and the build's name, which is also its release tag
-        versionCode Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
-        versionName System.getenv('VERSION_NAME') ?: 'local build'
+        versionCode = Integer.parseInt(System.getenv('VERSION_CODE') ?: '1')
+        versionName = System.getenv('VERSION_NAME') ?: 'local build'
 
         ndk {
             // arm64 first. Add 'armeabi-v7a' once arm64 is confirmed working.
@@ -40,10 +40,6 @@ android {
                           // -Werror would block bring-up on harmless ones (e.g. NO_PNG being
                           // defined by both bothdefs.h and the CMake feature flags).
                           '-DFTE_WERROR=false',
-                          // 16 KB page-size alignment for the .so (Android 15+ / 16 KB-page
-                          // devices). NDK r26 still defaults to 4 KB, so force it on the linker.
-                          // ftedroid is an ADD_LIBRARY(... MODULE), hence MODULE_LINKER_FLAGS.
-                          '-DCMAKE_MODULE_LINKER_FLAGS=-Wl,-z,max-page-size=16384,-z,common-page-size=16384',
                           // Build as NZ:P (nzp game default + branding), not generic FTEQW.
                           "-DFTE_BUILD_CONFIG=${nzpBuildConfig}".toString(),
                           // Compile FTE's GnuTLS backend (DTLS/TLS) for the NZ:P online broker.
@@ -75,8 +71,8 @@ android {
     externalNativeBuild {
         cmake {
             // The engine's own CMakeLists already has a complete IF(ANDROID) path.
-            path '../fteqw/CMakeLists.txt'
-            version '3.22.1'
+            path = '../fteqw/CMakeLists.txt'
+            version = '4.1.2'
         }
     }
 
@@ -104,10 +100,10 @@ android {
         release {
             def kf = System.getenv('KEYSTORE_FILE')
             if (kf != null) {
-                storeFile file(kf)
-                storePassword System.getenv('KEYSTORE_PASSWORD')
-                keyAlias System.getenv('KEY_ALIAS')
-                keyPassword System.getenv('KEY_PASSWORD')
+                storeFile = file(kf)
+                storePassword = System.getenv('KEYSTORE_PASSWORD')
+                keyAlias = System.getenv('KEY_ALIAS')
+                keyPassword = System.getenv('KEY_PASSWORD')
             }
         }
     }
@@ -115,23 +111,23 @@ android {
     buildTypes {
         debug {
             // keep it simple for the first bring-up
-            jniDebuggable true
+            jniDebuggable = true
         }
         release {
             // minify must stay off: R8 would strip the JNI-registered native methods
             // (FTENativeActivity / FTEDroidEngine) since nothing calls them from Java.
-            minifyEnabled false
+            minifyEnabled = false
             // The .so shipped in the APK stays stripped, but keep a symbol table
             // alongside the build so a crash address can be turned back into a
             // function name. Without it a native tombstone is just offsets.
-            ndk { debugSymbolLevel 'symbol_table' }
-            signingConfig System.getenv('KEYSTORE_FILE') != null ? signingConfigs.release : signingConfigs.debug
+            ndk { debugSymbolLevel = 'symbol_table' }
+            signingConfig = System.getenv('KEYSTORE_FILE') != null ? signingConfigs.release : signingConfigs.debug
         }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 

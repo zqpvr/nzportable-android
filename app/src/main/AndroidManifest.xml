@@ -14,7 +14,8 @@
         android:label="@string/app_name"
         android:hasCode="true"
         android:hardwareAccelerated="true"
-        android:isGame="true">
+        android:isGame="true"
+        android:appCategory="game">
 
         <!-- Reuses FTEQW's native activity glue (com.fteqw.*) from the submodule. -->
         <activity

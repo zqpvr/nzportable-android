@@ -106,8 +106,8 @@ the mouse events the menus already understand.
 
 ## Building
 
-Needs JDK 17, since newer JDKs are too new for the Gradle version in use, and
-NDK 26.3.11579264. `compileSdk` is 34 and `minSdk` is 24.
+Needs JDK 17 or newer (CI uses 25), NDK 30.0.16248370 and CMake 4.1.2, with
+Gradle 9.8 and AGP 9.5. `compileSdk` is 37, `targetSdk` 34 and `minSdk` 24.
 
 The game data isn't tracked. `tools/build-data.sh` assembles it into `nzp/`,
 downloading NZ:P's assets and building the game code from `quakec/`, which needs
