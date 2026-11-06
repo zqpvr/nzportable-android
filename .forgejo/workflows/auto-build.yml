@@ -107,7 +107,7 @@ jobs:
       - name: Publish release
         env:
           # The runner shares the server's network, so this talks to Forgejo directly instead of through the VPS.
-          API: http://127.0.0.1:3000/api/v1/repos/${{ github.repository }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
           AUTH: "Authorization: token ${{ secrets.GITHUB_TOKEN }}"
         run: |
           # The tag keeps a prefix so it reads as one and still sorts by date.
